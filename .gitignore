@@ -1,0 +1,21 @@
+# Reference clone
+sidebar-markdown-notes/
+
+# Build and dependencies
+node_modules/
+dist/
+out/
+*.vsix
+
+# OS and environment
+.DS_Store
+Thumbs.db
+*.log
+
+# Test and coverage
+.nyc_output/
+coverage/
+
+# Misc
+.vscode-test/
+.notes/
