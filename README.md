@@ -15,6 +15,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
 </p>
 
+<p align="center">
+  <img src="media/banner.png" alt="Sidebar Notes Showcase Banner" width="100%" />
+</p>
+
 ---
 
 ## 🚀 Why Sidebar Notes?
