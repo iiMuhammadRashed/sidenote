@@ -8,430 +8,318 @@ import { NotesTreeProvider } from '../views/notes-tree-provider';
 import { getConfiguration } from '../constants/config';
 import { stripMarkdownExtension } from '../utils/path-utils';
 
+/** How long transient confirmations stay in the status bar. */
+const STATUS_MESSAGE_TIMEOUT_MS = 3000;
+
+/** The shapes a tree or palette invocation can hand a command. */
+type CommandTarget = NoteItem | NoteTreeItem | { scope?: NoteScope; folder?: string } | undefined;
+
 export function registerNoteCommands(
   context: vscode.ExtensionContext,
   noteService: NoteService,
   metadataService: MetadataService,
   treeProvider: NotesTreeProvider
 ): void {
-  // 1. New Note
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.NEW_NOTE,
-      async (arg?: NoteTreeItem | { scope?: NoteScope; folder?: string }) => {
-        let initialFolder = '';
-        let initialScope: NoteScope | undefined;
+  const openNote = async (note: NoteItem, beside = false): Promise<void> => {
+    const document = await vscode.workspace.openTextDocument(note.uri);
+    await vscode.window.showTextDocument(document, {
+      preview: false,
+      ...(beside ? { viewColumn: vscode.ViewColumn.Beside } : {}),
+    });
+    await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
+    treeProvider.refresh();
+  };
 
-        if (arg instanceof NoteTreeItem) {
-          if (arg.itemType === 'folder' && arg.folderPath) {
-            initialFolder = arg.folderPath;
-            initialScope = arg.scope;
-          } else if (arg.itemType === 'section') {
-            if (arg.sectionId === 'workspace') {
-              initialScope = 'workspace';
-            } else if (arg.sectionId === 'global') {
-              initialScope = 'global';
-            }
-          }
-        } else if (arg && typeof arg === 'object') {
-          initialFolder = arg.folder || '';
-          initialScope = arg.scope;
-        }
-
-        const title = await vscode.window.showInputBox({
-          prompt: 'Enter note title',
-          placeHolder: 'e.g. Project Architecture, Meeting Notes, Ideas',
-          validateInput: (value) => {
-            if (!value || !value.trim()) {
-              return 'Note title cannot be empty';
-            }
-            return null;
-          },
-        });
-
-        if (!title) {
-          return;
-        }
-
+  const register = (command: string, handler: (target: CommandTarget) => unknown): void => {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(command, async (target?: CommandTarget) => {
         try {
-          const newNote = await noteService.createNote({
-            title: title.trim(),
-            folder: initialFolder,
-            scope: initialScope,
-          });
-
-          treeProvider.refresh();
-
-          // Open the newly created note in the editor
-          const doc = await vscode.workspace.openTextDocument(newNote.uri);
-          await vscode.window.showTextDocument(doc, { preview: false });
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Failed to create note: ${msg}`);
+          await handler(target);
+        } catch (error: unknown) {
+          vscode.window.showErrorMessage(`Sidenote: ${toMessage(error)}`);
         }
+      })
+    );
+  };
+
+  register(COMMANDS.NEW_NOTE, async (target) => {
+    const { folder, scope } = resolveCreationTarget(target);
+
+    const title = await vscode.window.showInputBox({
+      prompt: 'Note title',
+      placeHolder: 'e.g. Project Architecture, Meeting Notes, Ideas',
+      validateInput: (value) => (value.trim() ? null : 'Note title cannot be empty'),
+    });
+    if (!title?.trim()) {
+      return;
+    }
+
+    const note = await noteService.createNote({ title: title.trim(), folder, scope });
+    treeProvider.refresh();
+    await openNote(note);
+  });
+
+  register(COMMANDS.NEW_FOLDER, async (target) => {
+    const { folder: parentFolder, scope } = resolveCreationTarget(target);
+
+    const name = await vscode.window.showInputBox({
+      prompt: 'Folder name',
+      placeHolder: 'e.g. Work, Ideas, Tasks',
+      validateInput: (value) => (value.trim() ? null : 'Folder name cannot be empty'),
+    });
+    if (!name?.trim()) {
+      return;
+    }
+
+    const folderPath = parentFolder ? `${parentFolder}/${name.trim()}` : name.trim();
+    await noteService.createFolder(folderPath, scope);
+    treeProvider.refresh();
+  });
+
+  register(COMMANDS.OPEN_NOTE, async (target) => {
+    const note = toNote(target);
+    if (note) {
+      await openNote(note);
+    }
+  });
+
+  register(COMMANDS.OPEN_TO_SIDE, async (target) => {
+    const note = toNote(target);
+    if (note) {
+      await openNote(note, true);
+    }
+  });
+
+  register(COMMANDS.RENAME, async (target) => {
+    const folder = toFolder(target);
+    if (folder) {
+      const currentName = folder.folderPath.split('/').pop() ?? folder.folderPath;
+      const newName = await vscode.window.showInputBox({
+        prompt: 'New folder name',
+        value: currentName,
+        validateInput: (value) => (value.trim() ? null : 'Folder name cannot be empty'),
+      });
+      if (!newName?.trim() || newName.trim() === currentName) {
+        return;
       }
-    )
-  );
-
-  // 2. New Folder
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.NEW_FOLDER,
-      async (arg?: NoteTreeItem) => {
-        let parentFolder = '';
-        let scope: NoteScope | undefined;
-
-        if (arg instanceof NoteTreeItem) {
-          if (arg.itemType === 'folder' && arg.folderPath) {
-            parentFolder = arg.folderPath;
-            scope = arg.scope;
-          } else if (arg.itemType === 'section') {
-            if (arg.sectionId === 'workspace') {
-              scope = 'workspace';
-            } else if (arg.sectionId === 'global') {
-              scope = 'global';
-            }
-          }
-        }
-
-        const folderName = await vscode.window.showInputBox({
-          prompt: 'Enter folder name',
-          placeHolder: 'e.g. Work, Ideas, Tasks',
-          validateInput: (value) => {
-            if (!value || !value.trim()) {
-              return 'Folder name cannot be empty';
-            }
-            return null;
-          },
-        });
-
-        if (!folderName) {
-          return;
-        }
-
-        const fullFolderPath = parentFolder ? `${parentFolder}/${folderName.trim()}` : folderName.trim();
-
-        try {
-          await noteService.createFolder(fullFolderPath, scope);
-          treeProvider.refresh();
-          vscode.window.showInformationMessage(`Folder "${folderName}" created`);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Failed to create folder: ${msg}`);
-        }
-      }
-    )
-  );
-
-  // 3. Open Note
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.OPEN_NOTE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        try {
-          const doc = await vscode.workspace.openTextDocument(note.uri);
-          await vscode.window.showTextDocument(doc, { preview: false });
-          await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
-          treeProvider.refresh();
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Could not open note "${note.title}": ${msg}`);
-        }
-      }
-    )
-  );
-
-  // 4. Open to Side
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.OPEN_TO_SIDE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        try {
-          const doc = await vscode.workspace.openTextDocument(note.uri);
-          await vscode.window.showTextDocument(doc, {
-            viewColumn: vscode.ViewColumn.Beside,
-            preview: false,
-          });
-          await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
-          treeProvider.refresh();
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Could not open note: ${msg}`);
-        }
-      }
-    )
-  );
-
-  // 5. Rename Note / Folder
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.RENAME_NOTE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        if (arg instanceof NoteTreeItem && arg.itemType === 'folder' && arg.folderPath) {
-          const oldName = arg.folderPath.split('/').pop() || arg.folderPath;
-          const newName = await vscode.window.showInputBox({
-            prompt: 'Enter new folder name',
-            value: oldName,
-            validateInput: (v) => (!v || !v.trim() ? 'Folder name cannot be empty' : null),
-          });
-          if (!newName || newName === oldName) {
-            return;
-          }
-          // Folder rename via move
-          const parent = arg.folderPath.includes('/')
-            ? arg.folderPath.slice(0, arg.folderPath.lastIndexOf('/'))
-            : '';
-          const targetPath = parent ? `${parent}/${newName}` : newName;
-          const root =
-            arg.scope === 'workspace' && noteService.getWorkspaceRoot()
-              ? noteService.getWorkspaceRoot()!
-              : noteService.getGlobalRoot();
-          const oldUri = vscode.Uri.joinPath(root, arg.folderPath);
-          const newUri = vscode.Uri.joinPath(root, targetPath);
-          await vscode.workspace.fs.rename(oldUri, newUri);
-          treeProvider.refresh();
-          return;
-        }
-
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        const currentTitle = stripMarkdownExtension(note.filename);
-        const newTitle = await vscode.window.showInputBox({
-          prompt: 'Enter new note title',
-          value: currentTitle,
-          validateInput: (value) => (!value || !value.trim() ? 'Title cannot be empty' : null),
-        });
-
-        if (!newTitle || newTitle.trim() === currentTitle) {
-          return;
-        }
-
-        try {
-          await noteService.renameNote(note, newTitle.trim());
-          treeProvider.refresh();
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Failed to rename note: ${msg}`);
-        }
-      }
-    )
-  );
-
-  // 6. Delete Note / Folder
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.DELETE_NOTE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        if (arg instanceof NoteTreeItem && arg.itemType === 'folder' && arg.folderPath && arg.scope) {
-          const deleted = await noteService.deleteFolder(arg.folderPath, arg.scope, true);
-          if (deleted) {
-            treeProvider.refresh();
-          }
-          return;
-        }
-
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        const deleted = await noteService.deleteNote(note, true);
-        if (deleted) {
-          treeProvider.refresh();
-        }
-      }
-    )
-  );
-
-  // 7. Duplicate Note
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.DUPLICATE_NOTE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        try {
-          const copy = await noteService.duplicateNote(note);
-          treeProvider.refresh();
-          const doc = await vscode.workspace.openTextDocument(copy.uri);
-          await vscode.window.showTextDocument(doc, { preview: false });
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Failed to duplicate note: ${msg}`);
-        }
-      }
-    )
-  );
-
-  // 8. Toggle Favorite / Pin
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.TOGGLE_FAVORITE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        const isFav = await metadataService.toggleFavorite(note.id);
-        treeProvider.refresh();
-        vscode.window.setStatusBarMessage(
-          isFav ? `⭐ Added "${note.title}" to Favorites` : `Removed "${note.title}" from Favorites`,
-          3000
-        );
-      }
-    )
-  );
-
-  // 9. Toggle Archive
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.TOGGLE_ARCHIVE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        const isArchived = await metadataService.toggleArchived(note.id);
-        treeProvider.refresh();
-        vscode.window.setStatusBarMessage(
-          isArchived ? `📦 Archived "${note.title}"` : `Unarchived "${note.title}"`,
-          3000
-        );
-      }
-    )
-  );
-
-  // 10. Copy Note Markdown Link
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.COPY_NOTE_LINK,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (!note) {
-          return;
-        }
-
-        const link = `[[${note.title}]]`;
-        await vscode.env.clipboard.writeText(link);
-        vscode.window.setStatusBarMessage(`Copied link ${link} to clipboard`, 3000);
-      }
-    )
-  );
-
-  // 11. Copy Note Relative Path
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.COPY_NOTE_PATH,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (note) {
-          await vscode.env.clipboard.writeText(note.relativePath);
-          vscode.window.setStatusBarMessage(`Copied path: ${note.relativePath}`, 3000);
-          return;
-        }
-        if (arg instanceof NoteTreeItem && arg.folderPath) {
-          await vscode.env.clipboard.writeText(arg.folderPath);
-          vscode.window.setStatusBarMessage(`Copied path: ${arg.folderPath}`, 3000);
-        }
-      }
-    )
-  );
-
-  // 12. Reveal in OS File Manager
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.REVEAL_IN_OS,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        if (note) {
-          await vscode.commands.executeCommand('revealFileInOS', note.uri);
-          return;
-        }
-        if (arg instanceof NoteTreeItem && arg.folderPath && arg.scope) {
-          const root =
-            arg.scope === 'workspace' && noteService.getWorkspaceRoot()
-              ? noteService.getWorkspaceRoot()!
-              : noteService.getGlobalRoot();
-          const folderUri = vscode.Uri.joinPath(root, arg.folderPath);
-          await vscode.commands.executeCommand('revealFileInOS', folderUri);
-        }
-      }
-    )
-  );
-
-  // 13. Open Daily Scratchpad
-  context.subscriptions.push(
-    vscode.commands.registerCommand(COMMANDS.OPEN_SCRATCHPAD, async () => {
-      try {
-        const note = await noteService.getOrCreateScratchpad();
-        treeProvider.refresh();
-        const doc = await vscode.workspace.openTextDocument(note.uri);
-        await vscode.window.showTextDocument(doc, { preview: false });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Failed to open scratchpad: ${msg}`);
-      }
-    })
-  );
-
-  // 14. Refresh
-  context.subscriptions.push(
-    vscode.commands.registerCommand(COMMANDS.REFRESH, () => {
+      await noteService.renameFolder(folder.folderPath, newName.trim(), folder.scope);
       treeProvider.refresh();
-    })
-  );
+      return;
+    }
 
-  // 15. Toggle Preview
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.TOGGLE_PREVIEW,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        const note = extractNote(arg);
-        const activeEditor = vscode.window.activeTextEditor;
-        const uri = note ? note.uri : activeEditor?.document.uri;
+    const note = toNote(target);
+    if (!note) {
+      return;
+    }
 
-        if (uri && uri.fsPath.endsWith('.md')) {
-          await vscode.commands.executeCommand('markdown.showPreviewToSide', uri);
-        }
+    const currentName = stripMarkdownExtension(note.filename);
+    const newName = await vscode.window.showInputBox({
+      prompt: 'New note name',
+      value: currentName,
+      validateInput: (value) => (value.trim() ? null : 'Note name cannot be empty'),
+    });
+    if (!newName?.trim() || newName.trim() === currentName) {
+      return;
+    }
+
+    await noteService.renameNote(note, newName.trim());
+    treeProvider.refresh();
+  });
+
+  register(COMMANDS.DELETE, async (target) => {
+    const folder = toFolder(target);
+    if (folder) {
+      const confirmed = await confirmDelete(
+        `Delete the folder "${folder.folderPath}" and every note inside it?`,
+        'Delete Folder'
+      );
+      if (!confirmed) {
+        return;
       }
-    )
-  );
+      const outcome = await noteService.deleteFolder(folder.folderPath, folder.scope);
+      treeProvider.refresh();
+      warnIfPermanent(outcome.permanent, `Folder "${folder.folderPath}"`);
+      return;
+    }
 
-  // 16. Open Settings
-  context.subscriptions.push(
-    vscode.commands.registerCommand(COMMANDS.OPEN_SETTINGS, () => {
-      vscode.commands.executeCommand('workbench.action.openSettings', 'sidebarNotes');
-    })
-  );
+    const note = toNote(target);
+    if (!note) {
+      return;
+    }
+
+    const confirmed = await confirmDelete(`Delete "${note.title}"?`, 'Delete Note');
+    if (!confirmed) {
+      return;
+    }
+
+    const outcome = await noteService.deleteNote(note);
+    treeProvider.refresh();
+    warnIfPermanent(outcome.permanent, `"${note.title}"`);
+  });
+
+  register(COMMANDS.DUPLICATE, async (target) => {
+    const note = toNote(target);
+    if (!note) {
+      return;
+    }
+    const copy = await noteService.duplicateNote(note);
+    treeProvider.refresh();
+    await openNote(copy);
+  });
+
+  register(COMMANDS.TOGGLE_FAVORITE, async (target) => {
+    const note = toNote(target);
+    if (!note) {
+      return;
+    }
+    const isFavorite = await metadataService.toggleFavorite(note.id);
+    treeProvider.refresh();
+    setStatusMessage(
+      isFavorite ? `Added "${note.title}" to Favorites` : `Removed "${note.title}" from Favorites`
+    );
+  });
+
+  register(COMMANDS.TOGGLE_ARCHIVE, async (target) => {
+    const note = toNote(target);
+    if (!note) {
+      return;
+    }
+    const isArchived = await metadataService.toggleArchived(note.id);
+    treeProvider.refresh();
+    setStatusMessage(isArchived ? `Archived "${note.title}"` : `Restored "${note.title}"`);
+  });
+
+  register(COMMANDS.COPY_WIKI_LINK, async (target) => {
+    const note = toNote(target);
+    if (!note) {
+      return;
+    }
+    const link = `[[${note.title}]]`;
+    await vscode.env.clipboard.writeText(link);
+    setStatusMessage(`Copied ${link}`);
+  });
+
+  register(COMMANDS.COPY_PATH, async (target) => {
+    const note = toNote(target);
+    const relativePath = note?.relativePath ?? toFolder(target)?.folderPath;
+    if (!relativePath) {
+      return;
+    }
+    await vscode.env.clipboard.writeText(relativePath);
+    setStatusMessage(`Copied ${relativePath}`);
+  });
+
+  register(COMMANDS.REVEAL_IN_FILE_EXPLORER, async (target) => {
+    const note = toNote(target);
+    if (note) {
+      await vscode.commands.executeCommand('revealFileInOS', note.uri);
+      return;
+    }
+
+    const folder = toFolder(target);
+    if (folder) {
+      const root = noteService.getRoot(folder.scope);
+      await vscode.commands.executeCommand(
+        'revealFileInOS',
+        vscode.Uri.joinPath(root, folder.folderPath)
+      );
+    }
+  });
+
+  register(COMMANDS.OPEN_DAILY_NOTE, async () => {
+    const note = await noteService.getOrCreateDailyNote();
+    treeProvider.refresh();
+    await openNote(note);
+  });
+
+  register(COMMANDS.REFRESH, () => {
+    noteService.invalidate();
+    treeProvider.refresh();
+  });
+
+  register(COMMANDS.SHOW_PREVIEW, async (target) => {
+    const uri = toNote(target)?.uri ?? vscode.window.activeTextEditor?.document.uri;
+    if (uri?.fsPath.toLowerCase().endsWith('.md')) {
+      await vscode.commands.executeCommand('markdown.showPreviewToSide', uri);
+    }
+  });
+
+  register(COMMANDS.OPEN_SETTINGS, async () => {
+    await vscode.commands.executeCommand('workbench.action.openSettings', 'sidenote');
+  });
 }
 
-function extractNote(arg?: NoteItem | NoteTreeItem): NoteItem | undefined {
-  if (!arg) {
+// --- Target coercion -------------------------------------------------------
+
+/** Narrows a command argument to a note, whether it arrived as a tree item or a raw note. */
+export function toNote(target: CommandTarget): NoteItem | undefined {
+  if (!target) {
     return undefined;
   }
-  if ('uri' in arg && 'relativePath' in arg) {
-    return arg as NoteItem;
+  if (target instanceof NoteTreeItem) {
+    return target.note;
   }
-  if (arg instanceof NoteTreeItem && arg.note) {
-    return arg.note;
+  return 'uri' in target && 'relativePath' in target ? target : undefined;
+}
+
+/** Narrows a command argument to a folder tree item with both of its required fields present. */
+function toFolder(target: CommandTarget): { folderPath: string; scope: NoteScope } | undefined {
+  if (
+    target instanceof NoteTreeItem &&
+    target.itemType === 'folder' &&
+    target.folderPath &&
+    target.scope
+  ) {
+    return { folderPath: target.folderPath, scope: target.scope };
   }
   return undefined;
+}
+
+/** Works out where a new note or folder should go, based on what the user right-clicked. */
+function resolveCreationTarget(target: CommandTarget): { folder: string; scope?: NoteScope } {
+  if (target instanceof NoteTreeItem) {
+    if (target.itemType === 'folder' && target.folderPath) {
+      return { folder: target.folderPath, scope: target.scope };
+    }
+    if (target.sectionId === 'workspace' || target.sectionId === 'global') {
+      return { folder: '', scope: target.sectionId };
+    }
+    return { folder: '' };
+  }
+
+  if (target && !('uri' in target)) {
+    return { folder: target.folder ?? '', scope: target.scope };
+  }
+
+  return { folder: '' };
+}
+
+// --- User feedback ---------------------------------------------------------
+
+async function confirmDelete(question: string, confirmLabel: string): Promise<boolean> {
+  if (!getConfiguration().confirmDelete) {
+    return true;
+  }
+  const choice = await vscode.window.showWarningMessage(question, { modal: true }, confirmLabel);
+  return choice === confirmLabel;
+}
+
+/**
+ * The OS trash is not always available (remote workspaces, some Linux setups).
+ * When we had to delete permanently, say so rather than letting the user assume it is recoverable.
+ */
+function warnIfPermanent(permanent: boolean, subject: string): void {
+  if (permanent) {
+    vscode.window.showWarningMessage(
+      `${subject} was deleted permanently — the system trash was not available.`
+    );
+  }
+}
+
+function setStatusMessage(message: string): void {
+  vscode.window.setStatusBarMessage(message, STATUS_MESSAGE_TIMEOUT_MS);
+}
+
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

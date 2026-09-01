@@ -26,6 +26,6 @@ export default [
     },
   },
   {
-    ignores: ['dist/**', 'out/**', 'node_modules/**', 'sidebar-markdown-notes/**', '*.vsix'],
+    ignores: ['dist/**', 'out/**', 'coverage/**', 'node_modules/**', '*.vsix'],
   },
 ];

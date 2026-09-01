@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-export const CONFIG_SECTION = 'sidebarNotes';
+export const CONFIG_SECTION = 'sidenote';
 
 export const CONFIG_KEYS = {
   NOTES_PATH: 'notesPath',
@@ -15,7 +15,8 @@ export const CONFIG_KEYS = {
   SHOW_STATUS_BAR_ITEM: 'showStatusBarItem',
   CONFIRM_DELETE: 'confirmDelete',
   DEFAULT_NOTE_TEMPLATE: 'defaultNoteTemplate',
-  SCRATCHPAD_TEMPLATE: 'scratchpadTemplate',
+  DAILY_NOTE_TEMPLATE: 'dailyNoteTemplate',
+  DAILY_NOTE_FOLDER: 'dailyNoteFolder',
   DATE_FORMAT: 'dateFormat',
 } as const;
 
@@ -41,7 +42,8 @@ export interface ExtensionConfig {
   showStatusBarItem: boolean;
   confirmDelete: boolean;
   defaultNoteTemplate: string;
-  scratchpadTemplate: string;
+  dailyNoteTemplate: string;
+  dailyNoteFolder: string;
   dateFormat: string;
 }
 
@@ -49,7 +51,7 @@ export function getConfiguration(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
     notesPath: cfg.get<string>(CONFIG_KEYS.NOTES_PATH, '.notes'),
-    globalNotesPath: cfg.get<string>(CONFIG_KEYS.GLOBAL_NOTES_PATH, '~/.sidebar-notes'),
+    globalNotesPath: cfg.get<string>(CONFIG_KEYS.GLOBAL_NOTES_PATH, '~/.sidenote'),
     defaultScope: cfg.get<NoteDefaultScope>(CONFIG_KEYS.DEFAULT_SCOPE, 'workspace'),
     sortBy: cfg.get<NoteSortOrder>(CONFIG_KEYS.SORT_BY, 'modifiedDesc'),
     showRecent: cfg.get<boolean>(CONFIG_KEYS.SHOW_RECENT, true),
@@ -63,10 +65,11 @@ export function getConfiguration(): ExtensionConfig {
       CONFIG_KEYS.DEFAULT_NOTE_TEMPLATE,
       '# ${title}\n\n'
     ),
-    scratchpadTemplate: cfg.get<string>(
-      CONFIG_KEYS.SCRATCHPAD_TEMPLATE,
-      '# Daily Scratchpad - ${date}\n\n- [ ] \n'
+    dailyNoteTemplate: cfg.get<string>(
+      CONFIG_KEYS.DAILY_NOTE_TEMPLATE,
+      '# ${date}\n\n- [ ] \n'
     ),
+    dailyNoteFolder: cfg.get<string>(CONFIG_KEYS.DAILY_NOTE_FOLDER, 'Daily'),
     dateFormat: cfg.get<string>(CONFIG_KEYS.DATE_FORMAT, 'YYYY-MM-DD'),
   };
 }

@@ -11,7 +11,7 @@ export class NoteCompletionProvider implements vscode.CompletionItemProvider {
     _token: vscode.CancellationToken,
     _context: vscode.CompletionContext
   ): Promise<vscode.CompletionItem[] | undefined> {
-    const linePrefix = document.lineAt(position).text.substr(0, position.character);
+    const linePrefix = document.lineAt(position).text.slice(0, position.character);
 
     // Only trigger if line ends with [[
     if (!linePrefix.endsWith('[[')) {

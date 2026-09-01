@@ -8,8 +8,18 @@ import { NotesTreeProvider } from '../views/notes-tree-provider';
 import { NoteItem } from '../models/note';
 import { getConfiguration } from '../constants/config';
 
+/** Keystroke settle time before a search runs, so typing stays responsive on large vaults. */
+const SEARCH_DEBOUNCE_MS = 80;
+
+type ItemAction = 'openToSide' | 'toggleFavorite';
+
+interface NoteQuickPickButton extends vscode.QuickInputButton {
+  action: ItemAction;
+}
+
 interface NoteQuickPickItem extends vscode.QuickPickItem {
   note: NoteItem;
+  buttons: readonly NoteQuickPickButton[];
 }
 
 export function registerSearchCommands(
@@ -19,116 +29,85 @@ export function registerSearchCommands(
   metadataService: MetadataService,
   treeProvider: NotesTreeProvider
 ): void {
-  // 1. Search Notes QuickPick
+  const openNote = async (note: NoteItem, beside: boolean): Promise<void> => {
+    const document = await vscode.workspace.openTextDocument(note.uri);
+    await vscode.window.showTextDocument(document, {
+      preview: false,
+      ...(beside ? { viewColumn: vscode.ViewColumn.Beside } : {}),
+    });
+    await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
+    treeProvider.refresh();
+  };
+
   context.subscriptions.push(
-    vscode.commands.registerCommand(COMMANDS.SEARCH_NOTES, async () => {
-      const allNotes = await noteService.getAllNotes();
-      const nonArchived = allNotes.filter((n) => !n.isArchived);
+    vscode.commands.registerCommand(COMMANDS.SEARCH, async () => {
+      let candidates = (await noteService.getAllNotes()).filter((note) => !note.isArchived);
 
       const quickPick = vscode.window.createQuickPick<NoteQuickPickItem>();
-      quickPick.placeholder = 'Search notes by title, folder, tag (#tag), or full text...';
+      quickPick.placeholder = 'Search notes by title, folder, tag or full text...';
       quickPick.matchOnDescription = true;
       quickPick.matchOnDetail = true;
+      quickPick.items = toItems(noteService.sortNotes(candidates));
 
-      const toQuickPickItems = (notes: NoteItem[], excerpts?: Map<string, string>): NoteQuickPickItem[] => {
-        return notes.map((note) => {
-          const scopeBadge = note.scope === 'workspace' ? '[WS]' : '[Global]';
-          const folderDesc = note.folder ? `${note.folder}/` : '';
-          const tagDesc = note.tags.length > 0 ? note.tags.map((t) => '#' + t).join(' ') : '';
-          const snippet = excerpts?.get(note.id);
-
-          return {
-            label: `${note.isPinned ? '$(pinned) ' : '$(markdown) '}${note.title}`,
-            description: `${scopeBadge} ${folderDesc}${note.filename} ${tagDesc ? ' • ' + tagDesc : ''}`,
-            detail: snippet || undefined,
-            note,
-            buttons: [
-              {
-                iconPath: new vscode.ThemeIcon('split-horizontal'),
-                tooltip: 'Open to Side',
-              },
-              {
-                iconPath: note.isPinned ? new vscode.ThemeIcon('pinned') : new vscode.ThemeIcon('star-empty'),
-                tooltip: note.isPinned ? 'Unpin Note' : 'Pin Note',
-              },
-            ],
-          };
-        });
-      };
-
-      // Initial list
-      const sorted = noteService.sortNotes(nonArchived);
-      quickPick.items = toQuickPickItems(sorted);
-
-      let debounceTimeout: NodeJS.Timeout | undefined;
+      let debounceTimer: NodeJS.Timeout | undefined;
+      let latestQueryId = 0;
 
       quickPick.onDidChangeValue((query) => {
-        if (debounceTimeout) {
-          clearTimeout(debounceTimeout);
-        }
-
-        debounceTimeout = setTimeout(async () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
           if (!query.trim()) {
-            quickPick.items = toQuickPickItems(sorted);
+            quickPick.items = toItems(noteService.sortNotes(candidates));
             return;
           }
 
+          const queryId = ++latestQueryId;
           quickPick.busy = true;
           try {
-            const results = await searchService.search(query, nonArchived);
-            const excerpts = new Map<string, string>();
-            for (const r of results) {
-              if (r.excerpt) {
-                excerpts.set(r.note.id, r.excerpt);
-              }
+            const results = await searchService.search(query, candidates);
+            // A slower earlier search must not overwrite a newer one's results.
+            if (queryId !== latestQueryId) {
+              return;
             }
-            quickPick.items = toQuickPickItems(
-              results.map((r) => r.note),
-              excerpts
+            quickPick.items = toItems(
+              results.map((result) => result.note),
+              new Map(results.filter((r) => r.excerpt).map((r) => [r.note.id, r.excerpt!]))
             );
+          } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Sidenote: search failed — ${message}`);
           } finally {
-            quickPick.busy = false;
+            if (queryId === latestQueryId) {
+              quickPick.busy = false;
+            }
           }
-        }, 80);
+        }, SEARCH_DEBOUNCE_MS);
       });
 
-      // Handle item selection
       quickPick.onDidAccept(async () => {
         const selected = quickPick.selectedItems[0];
-        if (selected) {
-          quickPick.hide();
-          const doc = await vscode.workspace.openTextDocument(selected.note.uri);
-          await vscode.window.showTextDocument(doc, { preview: false });
-          await metadataService.recordRecent(selected.note.id, getConfiguration().recentLimit);
-          treeProvider.refresh();
+        if (!selected) {
+          return;
         }
+        quickPick.hide();
+        await openNote(selected.note, false);
       });
 
-      // Handle button clicks (e.g. open to side, toggle pin)
-      quickPick.onDidTriggerItemButton(async (e) => {
-        const note = e.item.note;
-        if (e.button.tooltip === 'Open to Side') {
+      quickPick.onDidTriggerItemButton(async (event) => {
+        if (toAction(event.button) === 'openToSide') {
           quickPick.hide();
-          const doc = await vscode.workspace.openTextDocument(note.uri);
-          await vscode.window.showTextDocument(doc, {
-            viewColumn: vscode.ViewColumn.Beside,
-            preview: false,
-          });
-          await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
-          treeProvider.refresh();
-        } else {
-          await metadataService.toggleFavorite(note.id);
-          treeProvider.refresh();
-          // Re-render items
-          const refreshedNotes = await noteService.getAllNotes();
-          quickPick.items = toQuickPickItems(refreshedNotes.filter((n) => !n.isArchived));
+          await openNote(event.item.note, true);
+          return;
         }
+
+        await metadataService.toggleFavorite(event.item.note.id);
+        noteService.invalidate();
+        treeProvider.refresh();
+        candidates = (await noteService.getAllNotes()).filter((note) => !note.isArchived);
+        quickPick.items = toItems(noteService.sortNotes(candidates));
       });
 
       quickPick.onDidHide(() => {
-        if (debounceTimeout) {
-          clearTimeout(debounceTimeout);
-        }
+        clearTimeout(debounceTimer);
         quickPick.dispose();
       });
 
@@ -136,45 +115,71 @@ export function registerSearchCommands(
     })
   );
 
-  // 2. Filter Notes by Tag
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      COMMANDS.FILTER_BY_TAG,
-      async (tagArg?: string) => {
-        if (tagArg && typeof tagArg === 'string') {
-          treeProvider.setTagFilter(tagArg);
-          return;
-        }
-
-        const notes = await noteService.getAllNotes();
-        const tagCounts = TagService.getTagCounts(notes.filter((n) => !n.isArchived));
-
-        if (tagCounts.length === 0) {
-          vscode.window.showInformationMessage('No tagged notes found. Add #hashtags or YAML tags to your notes.');
-          return;
-        }
-
-        const items = tagCounts.map(({ tag, count }) => ({
-          label: `#${tag}`,
-          description: `${count} ${count === 1 ? 'note' : 'notes'}`,
-          tag,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          placeHolder: 'Select a tag to filter the sidebar',
-        });
-
-        if (selected) {
-          treeProvider.setTagFilter(selected.tag);
-        }
+    vscode.commands.registerCommand(COMMANDS.FILTER_BY_TAG, async (tag?: string) => {
+      if (typeof tag === 'string' && tag) {
+        treeProvider.setTagFilter(tag);
+        return;
       }
-    )
+
+      const notes = await noteService.getAllNotes();
+      const tagCounts = TagService.getTagCounts(notes.filter((note) => !note.isArchived));
+
+      if (tagCounts.length === 0) {
+        vscode.window.showInformationMessage(
+          'Sidenote: no tags found yet. Add #hashtags or a YAML `tags:` list to a note.'
+        );
+        return;
+      }
+
+      const selected = await vscode.window.showQuickPick(
+        tagCounts.map(({ tag: name, count }) => ({
+          label: `#${name}`,
+          description: `${count} ${count === 1 ? 'note' : 'notes'}`,
+          tag: name,
+        })),
+        { placeHolder: 'Filter the sidebar by tag' }
+      );
+
+      if (selected) {
+        treeProvider.setTagFilter(selected.tag);
+      }
+    })
   );
 
-  // 3. Clear Tag Filter
   context.subscriptions.push(
     vscode.commands.registerCommand(COMMANDS.CLEAR_TAG_FILTER, () => {
       treeProvider.setTagFilter(undefined);
     })
   );
+}
+
+/** Recovers the action tagged onto one of our own quick pick buttons. */
+function toAction(button: vscode.QuickInputButton): ItemAction | undefined {
+  return (button as Partial<NoteQuickPickButton>).action;
+}
+
+function toItems(notes: readonly NoteItem[], excerpts?: ReadonlyMap<string, string>): NoteQuickPickItem[] {
+  return notes.map((note) => ({
+    label: `${note.isFavorite ? '$(star-full) ' : '$(markdown) '}${note.title}`,
+    description: describeNote(note),
+    detail: excerpts?.get(note.id),
+    note,
+    buttons: [
+      { action: 'openToSide', iconPath: new vscode.ThemeIcon('split-horizontal'), tooltip: 'Open to the Side' },
+      {
+        action: 'toggleFavorite',
+        iconPath: new vscode.ThemeIcon(note.isFavorite ? 'star-full' : 'star-empty'),
+        tooltip: note.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+      },
+    ],
+  }));
+}
+
+function describeNote(note: NoteItem): string {
+  const parts = [note.scope === 'workspace' ? 'Workspace' : 'Global', note.relativePath];
+  if (note.tags.length > 0) {
+    parts.push(note.tags.map((tag) => `#${tag}`).join(' '));
+  }
+  return parts.join(' • ');
 }

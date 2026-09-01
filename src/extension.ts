@@ -13,45 +13,52 @@ import { registerOrganizationCommands } from './commands/organization-commands';
 import { COMMANDS } from './constants/commands';
 import { getConfiguration, CONFIG_SECTION } from './constants/config';
 
-let statusBarItem: vscode.StatusBarItem | undefined;
+export const VIEW_ID = 'sidenote.explorer';
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  // 1. Initialize Services
+/** Context key that reveals the "Clear Tag Filter" action only while a filter is active. */
+const TAG_FILTER_CONTEXT_KEY = 'sidenote.hasTagFilter';
+
+export function activate(context: vscode.ExtensionContext): void {
   const metadataService = new MetadataService(context.workspaceState, context.globalState);
   const noteService = new NoteService(metadataService);
   const searchService = new SearchService(noteService);
+  // The global folder must exist before its file watcher can attach to it.
   const watcherService = new WatcherService(noteService);
   context.subscriptions.push(watcherService);
+  void noteService.ensureGlobalRoot().then(() => watcherService.setupWatchers());
 
-  // 2. Initialize Views
   const treeProvider = new NotesTreeProvider(noteService, metadataService);
-  const dragAndDropController = new NotesDragAndDropController(noteService);
+  context.subscriptions.push(
+    vscode.window.createTreeView(VIEW_ID, {
+      treeDataProvider: treeProvider,
+      dragAndDropController: new NotesDragAndDropController(noteService),
+      showCollapseAll: true,
+      canSelectMany: false,
+    })
+  );
 
-  const treeView = vscode.window.createTreeView('sidebarNotes.explorer', {
-    treeDataProvider: treeProvider,
-    dragAndDropController,
-    showCollapseAll: true,
-    canSelectMany: false,
-  });
-  context.subscriptions.push(treeView);
+  context.subscriptions.push(
+    treeProvider.onDidChangeTagFilter((tag) =>
+      vscode.commands.executeCommand('setContext', TAG_FILTER_CONTEXT_KEY, tag !== undefined)
+    )
+  );
 
-  // 3. Connect Watcher to TreeView and Search Cache
+  // Anything touching the notes folders invalidates every layer of cache at once.
   context.subscriptions.push(
     watcherService.onDidChangeNotes(() => {
+      noteService.invalidate();
       searchService.clearCache();
       treeProvider.refresh();
     })
   );
 
-  // 4. Register Status Bar Item
-  updateStatusBarItem(context);
+  const statusBar = new QuickNoteStatusBarItem();
+  context.subscriptions.push(statusBar);
+  statusBar.sync();
 
-  // 5. Register Markdown Wiki Link and Auto-completion Providers
   const markdownSelector: vscode.DocumentSelector = { scheme: 'file', language: 'markdown' };
   context.subscriptions.push(
-    vscode.languages.registerDocumentLinkProvider(markdownSelector, new NoteLinkProvider(noteService))
-  );
-  context.subscriptions.push(
+    vscode.languages.registerDocumentLinkProvider(markdownSelector, new NoteLinkProvider(noteService)),
     vscode.languages.registerCompletionItemProvider(
       markdownSelector,
       new NoteCompletionProvider(noteService),
@@ -59,49 +66,61 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     )
   );
 
-  // 6. Register Command Handlers
   registerNoteCommands(context, noteService, metadataService, treeProvider);
   registerSearchCommands(context, noteService, searchService, metadataService, treeProvider);
   registerOrganizationCommands(context, noteService, treeProvider);
 
-  // 7. Listen for Configuration Changes
   context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration(CONFIG_SECTION)) {
-        updateStatusBarItem(context);
-        watcherService.setupWatchers();
-        searchService.clearCache();
-        treeProvider.refresh();
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration(CONFIG_SECTION)) {
+        return;
       }
+      statusBar.sync();
+      watcherService.setupWatchers();
+      noteService.invalidate();
+      searchService.clearCache();
+      treeProvider.refresh();
     })
   );
 
-  // 8. Auto-create notes directory on first load in background
-  noteService.ensureDirectories().catch(() => {});
-}
-
-function updateStatusBarItem(context: vscode.ExtensionContext): void {
-  const config = getConfiguration();
-
-  if (config.showStatusBarItem) {
-    if (!statusBarItem) {
-      statusBarItem = vscode.window.createStatusBarItem(
-        vscode.StatusBarAlignment.Right,
-        100
-      );
-      statusBarItem.command = COMMANDS.NEW_NOTE;
-      statusBarItem.text = '$(note) New Note';
-      statusBarItem.tooltip = 'Create a new Markdown note (Sidebar Notes)';
-      context.subscriptions.push(statusBarItem);
-    }
-    statusBarItem.show();
-  } else if (statusBarItem) {
-    statusBarItem.hide();
-  }
+  // A new workspace folder means a different notes root.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      watcherService.setupWatchers();
+      noteService.invalidate();
+      searchService.clearCache();
+      treeProvider.refresh();
+    })
+  );
 }
 
 export function deactivate(): void {
-  if (statusBarItem) {
-    statusBarItem.dispose();
+  // All disposables are owned by the extension context.
+}
+
+/** The optional status bar shortcut for capturing a note without opening the sidebar. */
+class QuickNoteStatusBarItem implements vscode.Disposable {
+  private item?: vscode.StatusBarItem;
+
+  /** Creates, shows or hides the item to match the current configuration. */
+  public sync(): void {
+    if (!getConfiguration().showStatusBarItem) {
+      this.item?.hide();
+      return;
+    }
+
+    if (!this.item) {
+      this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+      this.item.command = COMMANDS.NEW_NOTE;
+      this.item.text = '$(note) New Note';
+      this.item.tooltip = 'Create a new Markdown note (Sidenote)';
+    }
+
+    this.item.show();
+  }
+
+  public dispose(): void {
+    this.item?.dispose();
+    this.item = undefined;
   }
 }

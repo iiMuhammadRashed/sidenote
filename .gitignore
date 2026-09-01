@@ -19,3 +19,6 @@ coverage/
 # Misc
 .vscode-test/
 .notes/
+
+# Local agent config
+.claude/

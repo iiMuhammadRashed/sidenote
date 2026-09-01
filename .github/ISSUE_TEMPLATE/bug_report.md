@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Create a report to help us improve Sidebar Notes
+about: Create a report to help us improve Sidenote
 title: '[BUG] '
 labels: bug
 assignees: ''
@@ -11,7 +11,7 @@ A clear and concise description of what the bug is.
 
 **To Reproduce**
 Steps to reproduce the behavior:
-1. Open Sidebar Notes
+1. Open Sidenote
 2. Perform action '...'
 3. See error
 

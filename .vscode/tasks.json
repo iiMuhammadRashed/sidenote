@@ -13,15 +13,6 @@
         "kind": "build",
         "isDefault": true
       }
-    },
-    {
-      "type": "npm",
-      "script": "pretest",
-      "problemMatcher": "$tsc",
-      "isBackground": false,
-      "presentation": {
-        "reveal": "silent"
-      }
     }
   ]
 }

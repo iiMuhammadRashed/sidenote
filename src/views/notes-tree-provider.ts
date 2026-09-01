@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { NoteItem, NoteScope } from '../models/note';
-import { NoteTreeItem } from '../models/tree-item';
+import { NoteTreeItem, SectionId } from '../models/tree-item';
 import { NoteService } from '../services/note-service';
 import { MetadataService } from '../services/metadata-service';
 import { TagService } from '../services/tag-service';
@@ -8,12 +8,15 @@ import { getConfiguration } from '../constants/config';
 import { COMMANDS } from '../constants/commands';
 
 export class NotesTreeProvider implements vscode.TreeDataProvider<NoteTreeItem> {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<NoteTreeItem | undefined | null | void>();
-  public readonly onDidChangeTreeData: vscode.Event<NoteTreeItem | undefined | null | void> =
-    this._onDidChangeTreeData.event;
+  private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
+  public readonly onDidChangeTreeData: vscode.Event<void> = this.onDidChangeTreeDataEmitter.event;
+
+  private readonly onDidChangeTagFilterEmitter = new vscode.EventEmitter<string | undefined>();
+  /** Fires whenever the active tag filter changes, so context keys can follow it. */
+  public readonly onDidChangeTagFilter: vscode.Event<string | undefined> =
+    this.onDidChangeTagFilterEmitter.event;
 
   private activeTagFilter?: string;
-  private cachedNotes: NoteItem[] = [];
 
   constructor(
     private readonly noteService: NoteService,
@@ -21,11 +24,16 @@ export class NotesTreeProvider implements vscode.TreeDataProvider<NoteTreeItem> 
   ) {}
 
   public refresh(): void {
-    this._onDidChangeTreeData.fire();
+    this.onDidChangeTreeDataEmitter.fire();
   }
 
   public setTagFilter(tag?: string): void {
-    this.activeTagFilter = tag;
+    const normalized = tag?.toLowerCase();
+    if (normalized === this.activeTagFilter) {
+      return;
+    }
+    this.activeTagFilter = normalized;
+    this.onDidChangeTagFilterEmitter.fire(normalized);
     this.refresh();
   }
 
@@ -38,183 +46,119 @@ export class NotesTreeProvider implements vscode.TreeDataProvider<NoteTreeItem> 
   }
 
   public async getChildren(element?: NoteTreeItem): Promise<NoteTreeItem[]> {
-    if (!element) {
-      return this.getRootChildren();
-    }
-
-    switch (element.itemType) {
-      case 'section':
-        return this.getSectionChildren(element.sectionId!);
-      case 'folder':
-        return this.getFolderChildren(element.folderPath!, element.scope!);
-      default:
-        return [];
+    try {
+      if (!element) {
+        return await this.getRootChildren();
+      }
+      if (element.itemType === 'section' && element.sectionId) {
+        return await this.getSectionChildren(element.sectionId);
+      }
+      if (element.itemType === 'folder' && element.folderPath !== undefined && element.scope) {
+        return await this.getFolderChildren(element.folderPath, element.scope);
+      }
+      return [];
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return [NoteTreeItem.createEmptyItem(`Could not read notes: ${message}`)];
     }
   }
 
   private async getRootChildren(): Promise<NoteTreeItem[]> {
-    this.cachedNotes = await this.noteService.getAllNotes();
+    const notes = await this.noteService.getAllNotes();
     const config = getConfiguration();
 
-    // 1. If tag filter is active, show only filtered notes
     if (this.activeTagFilter) {
-      const banner = NoteTreeItem.createFilterBanner(this.activeTagFilter);
-      const filtered = this.cachedNotes.filter((n) =>
-        n.tags.includes(this.activeTagFilter!.toLowerCase())
-      );
-      const sorted = this.noteService.sortNotes(filtered);
-      const noteItems = sorted.map((n) => NoteTreeItem.createNoteItem(n, true));
-      return [banner, ...(noteItems.length > 0 ? noteItems : [NoteTreeItem.createEmptyItem('No notes found with this tag')])];
+      return this.getTagFilterChildren(notes, this.activeTagFilter);
     }
 
-    const nonArchivedNotes = this.cachedNotes.filter((n) => !n.isArchived);
-    const result: NoteTreeItem[] = [];
+    const visible = notes.filter((note) => !note.isArchived);
+    const sections: NoteTreeItem[] = [];
 
-    // 2. Favorites Section
     if (config.showFavorites) {
-      const favNotes = nonArchivedNotes.filter((n) => n.isPinned);
-      if (favNotes.length > 0) {
-        result.push(
-          NoteTreeItem.createSectionItem(
-            'Favorites',
-            'favorites',
-            'star-full',
-            favNotes.length,
-            true
-          )
-        );
+      const favorites = visible.filter((note) => note.isFavorite);
+      if (favorites.length > 0) {
+        sections.push(NoteTreeItem.createSectionItem('Favorites', 'favorites', 'star-full', favorites.length));
       }
     }
 
-    // 3. Recent Notes Section
     if (config.showRecent) {
-      const recentIds = this.metadataService.getRecentIds();
-      const recentNotes = nonArchivedNotes
-        .filter((n) => recentIds.includes(n.id))
-        .sort((a, b) => recentIds.indexOf(a.id) - recentIds.indexOf(b.id))
-        .slice(0, config.recentLimit);
-
-      if (recentNotes.length > 0) {
-        result.push(
-          NoteTreeItem.createSectionItem(
-            'Recent Notes',
-            'recent',
-            'history',
-            recentNotes.length,
-            true
-          )
-        );
+      const recentCount = this.getRecentNotes(visible, config.recentLimit).length;
+      if (recentCount > 0) {
+        sections.push(NoteTreeItem.createSectionItem('Recent', 'recent', 'history', recentCount));
       }
     }
 
-    // 4. Workspace Notes Section (if workspace folder is open)
-    const wsRoot = this.noteService.getWorkspaceRoot();
-    if (wsRoot) {
-      const wsNotes = nonArchivedNotes.filter((n) => n.scope === 'workspace');
-      result.push(
-        NoteTreeItem.createSectionItem(
-          'Workspace Notes',
-          'workspace',
-          'folder-active',
-          wsNotes.length,
-          true
-        )
+    const hasWorkspace = this.noteService.getWorkspaceRoot() !== undefined;
+    if (hasWorkspace) {
+      const workspaceNotes = visible.filter((note) => note.scope === 'workspace');
+      sections.push(
+        NoteTreeItem.createSectionItem('Workspace Notes', 'workspace', 'folder-active', workspaceNotes.length)
       );
     }
 
-    // 5. Global Notes Section
-    const globalNotes = nonArchivedNotes.filter((n) => n.scope === 'global');
-    result.push(
-      NoteTreeItem.createSectionItem(
-        'Global Notes',
-        'global',
-        'globe',
-        globalNotes.length,
-        wsRoot ? false : true // Expand global by default if no workspace
-      )
+    const globalNotes = visible.filter((note) => note.scope === 'global');
+    sections.push(
+      NoteTreeItem.createSectionItem('Global Notes', 'global', 'globe', globalNotes.length, !hasWorkspace)
     );
 
-    // 6. Tags Section
     if (config.showTags) {
-      const tagCounts = TagService.getTagCounts(nonArchivedNotes);
-      if (tagCounts.length > 0) {
-        result.push(
-          NoteTreeItem.createSectionItem(
-            'Tags',
-            'tags',
-            'tag',
-            tagCounts.length,
-            false
-          )
-        );
+      const tagCount = TagService.getTagCounts(visible).length;
+      if (tagCount > 0) {
+        sections.push(NoteTreeItem.createSectionItem('Tags', 'tags', 'tag', tagCount, false));
       }
     }
 
-    // 7. Archive Section
     if (config.showArchive) {
-      const archivedNotes = this.cachedNotes.filter((n) => n.isArchived);
-      if (archivedNotes.length > 0) {
-        result.push(
-          NoteTreeItem.createSectionItem(
-            'Archive',
-            'archive',
-            'archive',
-            archivedNotes.length,
-            false
-          )
-        );
+      const archived = notes.filter((note) => note.isArchived);
+      if (archived.length > 0) {
+        sections.push(NoteTreeItem.createSectionItem('Archive', 'archive', 'archive', archived.length, false));
       }
     }
 
-    if (result.length === 0) {
-      return [
-        NoteTreeItem.createEmptyItem('No notes yet. Click to create one!', {
-          command: COMMANDS.NEW_NOTE,
-          title: 'Create Note',
-        }),
-      ];
-    }
-
-    return result;
+    return sections;
   }
 
-  private async getSectionChildren(sectionId: string): Promise<NoteTreeItem[]> {
-    const nonArchivedNotes = this.cachedNotes.filter((n) => !n.isArchived);
+  private getTagFilterChildren(notes: readonly NoteItem[], tag: string): NoteTreeItem[] {
+    const matches = this.noteService.sortNotes(notes.filter((note) => note.tags.includes(tag)));
+    const banner = NoteTreeItem.createFilterBanner(tag);
+
+    if (matches.length === 0) {
+      return [banner, NoteTreeItem.createEmptyItem(`No notes tagged #${tag}`)];
+    }
+
+    return [banner, ...matches.map((note) => NoteTreeItem.createNoteItem(note, true))];
+  }
+
+  private async getSectionChildren(sectionId: SectionId): Promise<NoteTreeItem[]> {
+    const notes = await this.noteService.getAllNotes();
+    const visible = notes.filter((note) => !note.isArchived);
 
     switch (sectionId) {
-      case 'favorites': {
-        const favs = nonArchivedNotes.filter((n) => n.isPinned);
-        const sorted = this.noteService.sortNotes(favs);
-        return sorted.map((n) => NoteTreeItem.createNoteItem(n, true));
-      }
+      case 'favorites':
+        return this.noteService
+          .sortNotes(visible.filter((note) => note.isFavorite))
+          .map((note) => NoteTreeItem.createNoteItem(note, true));
 
-      case 'recent': {
-        const recentIds = this.metadataService.getRecentIds();
-        const recentNotes = nonArchivedNotes
-          .filter((n) => recentIds.includes(n.id))
-          .sort((a, b) => recentIds.indexOf(a.id) - recentIds.indexOf(b.id))
-          .slice(0, getConfiguration().recentLimit);
-        return recentNotes.map((n) => NoteTreeItem.createNoteItem(n, true));
-      }
+      case 'recent':
+        return this.getRecentNotes(visible, getConfiguration().recentLimit).map((note) =>
+          NoteTreeItem.createNoteItem(note, true)
+        );
 
-      case 'workspace': {
+      case 'workspace':
         return this.getFolderChildren('', 'workspace');
-      }
 
-      case 'global': {
+      case 'global':
         return this.getFolderChildren('', 'global');
-      }
 
-      case 'tags': {
-        const tagCounts = TagService.getTagCounts(nonArchivedNotes);
-        return tagCounts.map(({ tag, count }) => NoteTreeItem.createTagItem(tag, count));
-      }
+      case 'tags':
+        return TagService.getTagCounts(visible).map(({ tag, count }) =>
+          NoteTreeItem.createTagItem(tag, count)
+        );
 
-      case 'archive': {
-        const archived = this.cachedNotes.filter((n) => n.isArchived);
-        const sorted = this.noteService.sortNotes(archived);
-        return sorted.map((n) => NoteTreeItem.createNoteItem(n, true));
-      }
+      case 'archive':
+        return this.noteService
+          .sortNotes(notes.filter((note) => note.isArchived))
+          .map((note) => NoteTreeItem.createNoteItem(note, true));
 
       default:
         return [];
@@ -222,54 +166,38 @@ export class NotesTreeProvider implements vscode.TreeDataProvider<NoteTreeItem> 
   }
 
   private async getFolderChildren(folderPath: string, scope: NoteScope): Promise<NoteTreeItem[]> {
-    const scopeNotes = this.cachedNotes.filter(
-      (n) => n.scope === scope && !n.isArchived
-    );
-
-    // Find direct subfolders
-    const subfolderNames = new Set<string>();
-    const directNotes: NoteItem[] = [];
+    const notes = await this.noteService.getAllNotes();
+    const inScope = notes.filter((note) => note.scope === scope && !note.isArchived);
 
     const prefix = folderPath ? `${folderPath}/` : '';
+    const subfolderPaths = new Set<string>();
+    const directNotes: NoteItem[] = [];
 
-    for (const note of scopeNotes) {
-      if (folderPath === '') {
-        if (!note.folder) {
-          directNotes.push(note);
-        } else {
-          const topFolder = note.folder.split('/')[0];
-          subfolderNames.add(topFolder);
-        }
-      } else {
-        if (note.folder === folderPath) {
-          directNotes.push(note);
-        } else if (note.folder.startsWith(prefix)) {
-          const remainder = note.folder.slice(prefix.length);
-          const nextSegment = remainder.split('/')[0];
-          subfolderNames.add(`${prefix}${nextSegment}`);
-        }
+    for (const note of inScope) {
+      if (note.folder === folderPath) {
+        directNotes.push(note);
+      } else if (note.folder.startsWith(prefix)) {
+        const nextSegment = note.folder.slice(prefix.length).split('/')[0];
+        subfolderPaths.add(`${prefix}${nextSegment}`);
       }
     }
 
-    const items: NoteTreeItem[] = [];
+    const items = Array.from(subfolderPaths)
+      .sort((a, b) => a.localeCompare(b))
+      .map((path) => {
+        const count = inScope.filter(
+          (note) => note.folder === path || note.folder.startsWith(`${path}/`)
+        ).length;
+        return NoteTreeItem.createFolderItem(path.split('/').pop() ?? path, path, scope, count);
+      });
 
-    // Sort and add subfolder items
-    const sortedSubfolders = Array.from(subfolderNames).sort((a, b) => a.localeCompare(b));
-    for (const fPath of sortedSubfolders) {
-      const folderName = fPath.split('/').pop() || fPath;
-      const count = scopeNotes.filter((n) => n.folder === fPath || n.folder.startsWith(`${fPath}/`)).length;
-      items.push(NoteTreeItem.createFolderItem(folderName, fPath, scope, count));
-    }
-
-    // Sort and add direct notes
-    const sortedNotes = this.noteService.sortNotes(directNotes);
-    for (const note of sortedNotes) {
-      items.push(NoteTreeItem.createNoteItem(note, false));
-    }
+    items.push(
+      ...this.noteService.sortNotes(directNotes).map((note) => NoteTreeItem.createNoteItem(note, false))
+    );
 
     if (items.length === 0 && folderPath === '') {
       return [
-        NoteTreeItem.createEmptyItem('Empty (Click to create a note)', {
+        NoteTreeItem.createEmptyItem('No notes yet — click to create one', {
           command: COMMANDS.NEW_NOTE,
           title: 'Create Note',
           arguments: [{ scope }],
@@ -278,5 +206,23 @@ export class NotesTreeProvider implements vscode.TreeDataProvider<NoteTreeItem> 
     }
 
     return items;
+  }
+
+  /** Recent notes in true most-recent-first order, limited and filtered to notes that still exist. */
+  private getRecentNotes(notes: readonly NoteItem[], limit: number): NoteItem[] {
+    const recentIds = this.metadataService.getRecentIds();
+    const byId = new Map(notes.map((note) => [note.id, note]));
+
+    const recent: NoteItem[] = [];
+    for (const id of recentIds) {
+      const note = byId.get(id);
+      if (note) {
+        recent.push(note);
+      }
+      if (recent.length === limit) {
+        break;
+      }
+    }
+    return recent;
   }
 }

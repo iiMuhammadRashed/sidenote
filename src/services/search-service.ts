@@ -23,10 +23,6 @@ export class SearchService {
     this.contentCache.clear();
   }
 
-  public invalidateNote(id: string): void {
-    this.contentCache.delete(id);
-  }
-
   /**
    * Searches notes by query with ranking and snippet generation.
    */

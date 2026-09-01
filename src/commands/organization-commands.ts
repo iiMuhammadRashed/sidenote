@@ -4,127 +4,110 @@ import { NoteService } from '../services/note-service';
 import { NotesTreeProvider } from '../views/notes-tree-provider';
 import { NoteItem, NoteScope } from '../models/note';
 import { NoteTreeItem } from '../models/tree-item';
+import { toNote } from './note-commands';
+
+interface FolderQuickPickItem extends vscode.QuickPickItem {
+  folder: string;
+  scope: NoteScope;
+  isNewFolder?: boolean;
+}
 
 export function registerOrganizationCommands(
   context: vscode.ExtensionContext,
   noteService: NoteService,
   treeProvider: NotesTreeProvider
 ): void {
-  // Move Note
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      COMMANDS.MOVE_NOTE,
-      async (arg?: NoteItem | NoteTreeItem) => {
-        let note: NoteItem | undefined;
-        if (arg instanceof NoteTreeItem && arg.note) {
-          note = arg.note;
-        } else if (arg && 'uri' in arg) {
-          note = arg as NoteItem;
-        }
-
+      COMMANDS.MOVE,
+      async (target?: NoteItem | NoteTreeItem) => {
+        const note = toNote(target);
         if (!note) {
-          vscode.window.showWarningMessage('Please select a note to move');
+          vscode.window.showWarningMessage('Sidenote: select a note to move first.');
           return;
         }
 
         const notes = await noteService.getAllNotes();
-        const wsRoot = noteService.getWorkspaceRoot();
-
-        interface FolderOption extends vscode.QuickPickItem {
-          folder: string;
-          scope: NoteScope;
-          isNew?: boolean;
-        }
-
-        const options: FolderOption[] = [];
-
-        // Workspace options
-        if (wsRoot) {
-          options.push({
-            label: '$(root-folder) Workspace Root',
-            description: 'Move to top-level workspace notes',
-            folder: '',
-            scope: 'workspace',
-          });
-
-          const wsFolders = new Set<string>();
-          for (const n of notes.filter((n) => n.scope === 'workspace' && n.folder)) {
-            wsFolders.add(n.folder);
-          }
-          for (const f of Array.from(wsFolders).sort()) {
-            options.push({
-              label: `$(folder) [Workspace] ${f}`,
-              folder: f,
-              scope: 'workspace',
-            });
-          }
-        }
-
-        // Global options
-        options.push({
-          label: '$(root-folder) Global Root',
-          description: 'Move to top-level global notes',
-          folder: '',
-          scope: 'global',
-        });
-
-        const globalFolders = new Set<string>();
-        for (const n of notes.filter((n) => n.scope === 'global' && n.folder)) {
-          globalFolders.add(n.folder);
-        }
-        for (const f of Array.from(globalFolders).sort()) {
-          options.push({
-            label: `$(folder) [Global] ${f}`,
-            folder: f,
-            scope: 'global',
-          });
-        }
-
-        // Create new folder option
-        options.push({
-          label: '$(add) + Create New Folder...',
-          description: 'Create a new destination folder',
-          folder: '',
-          scope: note.scope,
-          isNew: true,
-        });
-
-        const selected = await vscode.window.showQuickPick(options, {
-          placeHolder: `Move "${note.title}" to...`,
-        });
-
-        if (!selected) {
+        const destination = await vscode.window.showQuickPick(
+          buildDestinations(notes, note, noteService.getWorkspaceRoot() !== undefined),
+          { placeHolder: `Move "${note.title}" to...` }
+        );
+        if (!destination) {
           return;
         }
 
-        let destinationFolder = selected.folder;
-        const destinationScope = selected.scope;
-
-        if (selected.isNew) {
-          const newFolderName = await vscode.window.showInputBox({
-            prompt: 'Enter new destination folder name',
-            placeHolder: 'e.g. Archives, Work/Project',
-            validateInput: (v) => (!v || !v.trim() ? 'Folder name cannot be empty' : null),
+        let folder = destination.folder;
+        if (destination.isNewFolder) {
+          const name = await vscode.window.showInputBox({
+            prompt: 'New destination folder',
+            placeHolder: 'e.g. Archive, Work/Project',
+            validateInput: (value) => (value.trim() ? null : 'Folder name cannot be empty'),
           });
-          if (!newFolderName) {
+          if (!name?.trim()) {
             return;
           }
-          destinationFolder = newFolderName.trim();
+          folder = name.trim();
         }
 
         try {
-          await noteService.moveNote(note, destinationFolder, destinationScope);
+          const moved = await noteService.moveNote(note, folder, destination.scope);
           treeProvider.refresh();
-          vscode.window.showInformationMessage(
-            `Moved "${note.title}" to ${destinationScope === 'workspace' ? 'Workspace' : 'Global'}${
-              destinationFolder ? '/' + destinationFolder : ' Root'
-            }`
+          vscode.window.setStatusBarMessage(
+            `Moved "${moved.title}" to ${describeLocation(moved.scope, moved.folder)}`,
+            3000
           );
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Failed to move note: ${msg}`);
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          vscode.window.showErrorMessage(`Sidenote: could not move the note — ${message}`);
         }
       }
     )
   );
+}
+
+/** Builds the destination list: both roots, every existing folder, and a "create new" escape hatch. */
+function buildDestinations(
+  notes: readonly NoteItem[],
+  note: NoteItem,
+  hasWorkspace: boolean
+): FolderQuickPickItem[] {
+  const destinations: FolderQuickPickItem[] = [];
+  const scopes: NoteScope[] = hasWorkspace ? ['workspace', 'global'] : ['global'];
+
+  for (const scope of scopes) {
+    const scopeLabel = scope === 'workspace' ? 'Workspace' : 'Global';
+
+    destinations.push({
+      label: `$(root-folder) ${scopeLabel} Root`,
+      folder: '',
+      scope,
+    });
+
+    const folders = new Set(
+      notes.filter((candidate) => candidate.scope === scope && candidate.folder).map((c) => c.folder)
+    );
+
+    for (const folder of Array.from(folders).sort((a, b) => a.localeCompare(b))) {
+      destinations.push({
+        label: `$(folder) ${folder}`,
+        description: scopeLabel,
+        folder,
+        scope,
+      });
+    }
+  }
+
+  destinations.push({
+    label: '$(add) Create new folder...',
+    folder: '',
+    scope: note.scope,
+    isNewFolder: true,
+  });
+
+  return destinations;
+}
+
+function describeLocation(scope: NoteScope, folder: string): string {
+  const scopeLabel = scope === 'workspace' ? 'Workspace' : 'Global';
+  return folder ? `${scopeLabel}/${folder}` : `${scopeLabel} root`;
 }

@@ -18,7 +18,7 @@ describe('SearchService', () => {
       mtime: 100,
       size: 200,
       tags: ['system', 'backend'],
-      isPinned: false,
+      isFavorite: false,
       isArchived: false,
     },
     {
@@ -33,7 +33,7 @@ describe('SearchService', () => {
       mtime: 200,
       size: 150,
       tags: ['meeting', 'team'],
-      isPinned: true,
+      isFavorite: true,
       isArchived: false,
     },
     {
@@ -48,7 +48,7 @@ describe('SearchService', () => {
       mtime: 300,
       size: 100,
       tags: ['brainstorm'],
-      isPinned: false,
+      isFavorite: false,
       isArchived: false,
     },
   ];

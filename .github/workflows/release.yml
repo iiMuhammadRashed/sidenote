@@ -29,7 +29,7 @@ jobs:
         run: |
           npm run lint
           npm run typecheck
-          npm run test-unit
+          npm run test:coverage
 
       - name: Package VSIX
         run: npx vsce package --no-dependencies

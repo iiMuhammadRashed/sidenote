@@ -1,15 +1,18 @@
 import * as vscode from 'vscode';
 import { NoteItem, NoteScope } from './note';
 import { getRelativeTimeString } from '../utils/date-utils';
+import { COMMANDS } from '../constants/commands';
 
-export type TreeItemType =
-  | 'section'
-  | 'folder'
-  | 'note'
-  | 'tag'
-  | 'tagHeader'
-  | 'filterBanner'
-  | 'empty';
+export type TreeItemType = 'section' | 'folder' | 'note' | 'tag' | 'filterBanner' | 'empty';
+
+/** The fixed top-level groupings shown at the root of the tree. */
+export type SectionId =
+  | 'favorites'
+  | 'recent'
+  | 'workspace'
+  | 'global'
+  | 'tags'
+  | 'archive';
 
 export class NoteTreeItem extends vscode.TreeItem {
   public readonly itemType: TreeItemType;
@@ -17,7 +20,7 @@ export class NoteTreeItem extends vscode.TreeItem {
   public readonly folderPath?: string;
   public readonly scope?: NoteScope;
   public readonly tag?: string;
-  public readonly sectionId?: string;
+  public readonly sectionId?: SectionId;
 
   constructor(
     label: string,
@@ -28,7 +31,7 @@ export class NoteTreeItem extends vscode.TreeItem {
       folderPath?: string;
       scope?: NoteScope;
       tag?: string;
-      sectionId?: string;
+      sectionId?: SectionId;
       description?: string;
       tooltip?: string | vscode.MarkdownString;
       iconPath?: vscode.ThemeIcon | vscode.Uri | { light: vscode.Uri; dark: vscode.Uri };
@@ -62,7 +65,7 @@ export class NoteTreeItem extends vscode.TreeItem {
   }
 
   static createNoteItem(note: NoteItem, showScopeBadge = false): NoteTreeItem {
-    const icon = note.isPinned
+    const icon = note.isFavorite
       ? new vscode.ThemeIcon('pinned', new vscode.ThemeColor('charts.yellow'))
       : note.isArchived
       ? new vscode.ThemeIcon('archive')
@@ -82,7 +85,7 @@ export class NoteTreeItem extends vscode.TreeItem {
     if (note.tags.length > 0) {
       tooltip.appendMarkdown(`- **Tags:** ${note.tags.map((t) => '`#' + t + '`').join(' ')}\n`);
     }
-    if (note.isPinned) {
+    if (note.isFavorite) {
       tooltip.appendMarkdown(`- ⭐ **Pinned / Favorite**\n`);
     }
     if (note.isArchived) {
@@ -98,7 +101,7 @@ export class NoteTreeItem extends vscode.TreeItem {
       iconPath: icon,
       contextValue: 'note',
       command: {
-        command: 'sidebarNotes.openNote',
+        command: COMMANDS.OPEN_NOTE,
         title: 'Open Note',
         arguments: [note],
       },
@@ -124,7 +127,7 @@ export class NoteTreeItem extends vscode.TreeItem {
 
   static createSectionItem(
     title: string,
-    sectionId: string,
+    sectionId: SectionId,
     icon: string,
     count?: number,
     defaultExpanded = true
@@ -153,7 +156,7 @@ export class NoteTreeItem extends vscode.TreeItem {
       iconPath: new vscode.ThemeIcon('tag'),
       contextValue: 'tag',
       command: {
-        command: 'sidebarNotes.filterByTag',
+        command: COMMANDS.FILTER_BY_TAG,
         title: 'Filter by Tag',
         arguments: [tag],
       },
@@ -170,7 +173,7 @@ export class NoteTreeItem extends vscode.TreeItem {
         iconPath: new vscode.ThemeIcon('clear-all', new vscode.ThemeColor('errorForeground')),
         contextValue: 'filterBanner',
         command: {
-          command: 'sidebarNotes.clearTagFilter',
+          command: COMMANDS.CLEAR_TAG_FILTER,
           title: 'Clear Tag Filter',
         },
       }

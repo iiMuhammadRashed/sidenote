@@ -12,5 +12,5 @@ Brief summary of the changes introduced by this pull request.
 - [ ] My code follows the code style of this project
 - [ ] I have run `npm run lint` and fixed all warnings
 - [ ] I have run `npm run typecheck`
-- [ ] I have run `npm run test-unit` and all tests pass
+- [ ] I have run `npm run test:coverage` and all tests pass
 - [ ] I have updated the documentation / README where necessary

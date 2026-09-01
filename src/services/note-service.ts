@@ -5,6 +5,7 @@ import { MetadataService } from './metadata-service';
 import { TagService } from './tag-service';
 import {
   sanitizeFilename,
+  sanitizeRelativeFolderPath,
   ensureMarkdownExtension,
   resolveHome,
   isPathInside,
@@ -16,73 +17,124 @@ import { renderTemplate } from '../utils/template-utils';
 import { getTodayDateString } from '../utils/date-utils';
 import { getConfiguration, NoteSortOrder } from '../constants/config';
 
+/** Guards against an accidental scan of a huge tree (or a symlink loop) locking up the sidebar. */
+const MAX_DIRECTORY_DEPTH = 12;
+
+/** Parsed content of one note file, reused while the file on disk is unchanged. */
+interface ParsedNoteFile {
+  mtime: number;
+  size: number;
+  title: string;
+  tags: string[];
+}
+
+export interface DeleteOutcome {
+  deleted: boolean;
+  /** True when the OS trash was unavailable and the file was removed permanently. */
+  permanent: boolean;
+}
+
 export class NoteService {
-  constructor(
-    private readonly metadataService: MetadataService
-  ) {}
+  /** Parsed title/tags per file path, keyed by mtime+size so unchanged files are never re-read. */
+  private readonly parsedFiles = new Map<string, ParsedNoteFile>();
+
+  /** In-flight or completed scan of the whole vault; cleared by {@link invalidate}. */
+  private pendingScan?: Promise<NoteItem[]>;
+
+  constructor(private readonly metadataService: MetadataService) {}
 
   /**
-   * Returns the workspace notes directory Uri, or undefined if no workspace is open.
+   * Drops the cached note list. Parsed file contents survive, since they are
+   * independently validated against each file's mtime and size.
+   */
+  public invalidate(): void {
+    this.pendingScan = undefined;
+  }
+
+  // --- Roots ---------------------------------------------------------------
+
+  /**
+   * Returns the workspace notes directory, or undefined when no workspace is open.
+   * Only the first workspace folder is used in a multi-root workspace.
    */
   public getWorkspaceRoot(): vscode.Uri | undefined {
-    const wsFolders = vscode.workspace.workspaceFolders;
-    if (!wsFolders || wsFolders.length === 0) {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
       return undefined;
     }
-    const config = getConfiguration();
-    const relPath = config.notesPath || '.notes';
-    return vscode.Uri.joinPath(wsFolders[0].uri, relPath);
+    // The notes path is the user's own setting, so dotted names like `.notes` are kept
+    // verbatim; only traversal out of the workspace is rejected.
+    const configured = getConfiguration().notesPath.trim();
+    const relativePath =
+      configured && !path.isAbsolute(configured) && !configured.split(/[/\\]+/).includes('..')
+        ? configured
+        : '.notes';
+    return vscode.Uri.joinPath(folders[0].uri, relativePath);
   }
 
-  /**
-   * Returns the global notes directory Uri.
-   */
   public getGlobalRoot(): vscode.Uri {
-    const config = getConfiguration();
-    const configuredPath = config.globalNotesPath || '~/.sidebar-notes';
-    const resolved = resolveHome(configuredPath);
-    return vscode.Uri.file(resolved);
+    const configured = getConfiguration().globalNotesPath || '~/.sidenote';
+    return vscode.Uri.file(resolveHome(configured));
   }
 
   /**
-   * Ensures the notes directories exist on disk.
+   * Creates the global notes folder if it is missing.
+   *
+   * Unlike the workspace folder, this one is the user's own dedicated directory, so creating
+   * it up front is not intrusive — and the global file watcher needs it to exist to attach.
+   * The workspace folder stays lazy so that merely opening a project never adds `.notes/` to it.
    */
-  public async ensureDirectories(): Promise<void> {
-    const globalRoot = this.getGlobalRoot();
+  public async ensureGlobalRoot(): Promise<void> {
     try {
-      await vscode.workspace.fs.createDirectory(globalRoot);
+      await vscode.workspace.fs.createDirectory(this.getGlobalRoot());
     } catch {
-      // Directory might already exist
+      // Already present, or the path is unwritable; either way the scan degrades to "no notes".
     }
+  }
 
-    const wsRoot = this.getWorkspaceRoot();
-    if (wsRoot) {
-      try {
-        await vscode.workspace.fs.createDirectory(wsRoot);
-      } catch {
-        // Directory might already exist
+  /** Resolves the root directory for a scope, falling back to global when no workspace is open. */
+  public getRoot(scope: NoteScope): vscode.Uri {
+    if (scope === 'workspace') {
+      const workspaceRoot = this.getWorkspaceRoot();
+      if (workspaceRoot) {
+        return workspaceRoot;
       }
     }
+    return this.getGlobalRoot();
   }
 
+  /** The scope a note lands in when the caller did not pick one. */
+  public resolveDefaultScope(): NoteScope {
+    return this.getWorkspaceRoot() ? getConfiguration().defaultScope : 'global';
+  }
+
+  // --- Reading -------------------------------------------------------------
+
   /**
-   * Reads all markdown notes from workspace and global directories.
+   * Returns every note in both scopes. Results are cached until {@link invalidate}
+   * is called, so repeated calls from the tree, link and completion providers are cheap.
    */
-  public async getAllNotes(): Promise<NoteItem[]> {
-    await this.ensureDirectories();
+  public getAllNotes(): Promise<NoteItem[]> {
+    if (!this.pendingScan) {
+      this.pendingScan = this.scanAllNotes().catch((err) => {
+        // A failed scan must not be cached, or the sidebar stays broken until reload.
+        this.pendingScan = undefined;
+        throw err;
+      });
+    }
+    return this.pendingScan;
+  }
+
+  private async scanAllNotes(): Promise<NoteItem[]> {
     const notes: NoteItem[] = [];
 
-    // 1. Read Workspace Notes
-    const wsRoot = this.getWorkspaceRoot();
-    if (wsRoot) {
-      const wsNotes = await this.readNotesFromDirectory(wsRoot, 'workspace', wsRoot.fsPath);
-      notes.push(...wsNotes);
+    const workspaceRoot = this.getWorkspaceRoot();
+    if (workspaceRoot) {
+      notes.push(...(await this.readNotesFromDirectory(workspaceRoot, 'workspace', workspaceRoot.fsPath, 0)));
     }
 
-    // 2. Read Global Notes
     const globalRoot = this.getGlobalRoot();
-    const globalNotes = await this.readNotesFromDirectory(globalRoot, 'global', globalRoot.fsPath);
-    notes.push(...globalNotes);
+    notes.push(...(await this.readNotesFromDirectory(globalRoot, 'global', globalRoot.fsPath, 0)));
 
     return notes;
   }
@@ -90,77 +142,127 @@ export class NoteService {
   private async readNotesFromDirectory(
     dirUri: vscode.Uri,
     scope: NoteScope,
-    rootDirFsPath: string
+    rootDirFsPath: string,
+    depth: number
   ): Promise<NoteItem[]> {
-    const notes: NoteItem[] = [];
+    if (depth > MAX_DIRECTORY_DEPTH) {
+      return [];
+    }
 
     let entries: [string, vscode.FileType][];
     try {
       entries = await vscode.workspace.fs.readDirectory(dirUri);
     } catch {
-      return notes;
+      // Root does not exist yet, or is not readable. Both mean "no notes here".
+      return [];
     }
+
+    const notes: NoteItem[] = [];
 
     for (const [name, type] of entries) {
       if (name.startsWith('.')) {
-        continue; // Ignore hidden files and metadata folders
+        continue; // Hidden files and metadata folders are not notes.
       }
 
       const entryUri = vscode.Uri.joinPath(dirUri, name);
 
       if (type === vscode.FileType.Directory) {
-        // Recursively read subfolders
-        const subNotes = await this.readNotesFromDirectory(entryUri, scope, rootDirFsPath);
-        notes.push(...subNotes);
-      } else if (type === vscode.FileType.File && name.toLowerCase().endsWith('.md')) {
-        try {
-          const stat = await vscode.workspace.fs.stat(entryUri);
-          const rawContent = await vscode.workspace.fs.readFile(entryUri);
-          const content = Buffer.from(rawContent).toString('utf8');
+        notes.push(...(await this.readNotesFromDirectory(entryUri, scope, rootDirFsPath, depth + 1)));
+        continue;
+      }
 
-          const fallbackTitle = stripMarkdownExtension(name);
-          const title = extractTitleFromMarkdown(content, fallbackTitle);
-          const relativePath = toRelativePath(rootDirFsPath, entryUri.fsPath);
-          const folder = path.dirname(relativePath) === '.' ? '' : path.dirname(relativePath).split(path.sep).join('/');
-          const id = `${scope}:${relativePath}`;
-          const tags = TagService.extractTags(content);
-          const isPinned = this.metadataService.isFavorite(id);
-          const isArchived = this.metadataService.isArchived(id);
+      if (type !== vscode.FileType.File || !name.toLowerCase().endsWith('.md')) {
+        continue;
+      }
 
-          notes.push({
-            id,
-            title,
-            uri: entryUri,
-            relativePath,
-            folder,
-            filename: name,
-            scope,
-            ctime: stat.ctime,
-            mtime: stat.mtime,
-            size: stat.size,
-            tags,
-            isPinned,
-            isArchived,
-          });
-        } catch {
-          // Ignore unreadable files
-        }
+      const note = await this.toNoteItem(entryUri, name, scope, rootDirFsPath);
+      if (note) {
+        notes.push(note);
       }
     }
 
     return notes;
   }
 
-  /**
-   * Reads raw string content of a note.
-   */
+  private async toNoteItem(
+    uri: vscode.Uri,
+    filename: string,
+    scope: NoteScope,
+    rootDirFsPath: string
+  ): Promise<NoteItem | undefined> {
+    let stat: vscode.FileStat;
+    try {
+      stat = await vscode.workspace.fs.stat(uri);
+    } catch {
+      return undefined; // Deleted between listing and stat.
+    }
+
+    const parsed = await this.parseFile(uri, filename, stat);
+    if (!parsed) {
+      return undefined;
+    }
+
+    const relativePath = toRelativePath(rootDirFsPath, uri.fsPath);
+    const parentDir = path.dirname(relativePath);
+    const folder = parentDir === '.' ? '' : parentDir.split(path.sep).join('/');
+    const id = `${scope}:${relativePath}`;
+
+    return {
+      id,
+      title: parsed.title,
+      uri,
+      relativePath,
+      folder,
+      filename,
+      scope,
+      ctime: stat.ctime,
+      mtime: stat.mtime,
+      size: stat.size,
+      tags: parsed.tags,
+      isFavorite: this.metadataService.isFavorite(id),
+      isArchived: this.metadataService.isArchived(id),
+    };
+  }
+
+  /** Reads and parses a note's title and tags, reusing the cached parse when the file is unchanged. */
+  private async parseFile(
+    uri: vscode.Uri,
+    filename: string,
+    stat: vscode.FileStat
+  ): Promise<ParsedNoteFile | undefined> {
+    const cached = this.parsedFiles.get(uri.fsPath);
+    if (cached && cached.mtime === stat.mtime && cached.size === stat.size) {
+      return cached;
+    }
+
+    let content: string;
+    try {
+      content = await this.readNoteContent(uri);
+    } catch {
+      return undefined; // Unreadable file: skip rather than break the whole scan.
+    }
+
+    const parsed: ParsedNoteFile = {
+      mtime: stat.mtime,
+      size: stat.size,
+      title: extractTitleFromMarkdown(content, stripMarkdownExtension(filename)),
+      tags: TagService.extractTags(content),
+    };
+
+    this.parsedFiles.set(uri.fsPath, parsed);
+    return parsed;
+  }
+
   public async readNoteContent(uri: vscode.Uri): Promise<string> {
     const raw = await vscode.workspace.fs.readFile(uri);
     return Buffer.from(raw).toString('utf8');
   }
 
+  // --- Writing -------------------------------------------------------------
+
   /**
-   * Creates a new note file.
+   * Creates a new note file, never overwriting an existing one.
+   * `folder` is sanitized, so it can never escape the notes root.
    */
   public async createNote(options: {
     title: string;
@@ -169,302 +271,290 @@ export class NoteService {
     content?: string;
   }): Promise<NoteItem> {
     const config = getConfiguration();
-    const scope = options.scope || (this.getWorkspaceRoot() ? config.defaultScope : 'global');
-    const root = scope === 'workspace' && this.getWorkspaceRoot() ? this.getWorkspaceRoot()! : this.getGlobalRoot();
+    const scope = options.scope ?? this.resolveDefaultScope();
+    const root = this.getRoot(scope);
+    const folder = sanitizeRelativeFolderPath(options.folder ?? '');
 
-    const sanitizedTitle = sanitizeFilename(options.title || 'Untitled');
-    const filename = ensureMarkdownExtension(sanitizedTitle);
-    const folder = options.folder ? options.folder.trim().replace(/^\/+|\/+$/g, '') : '';
+    const targetDir = folder ? vscode.Uri.joinPath(root, folder) : root;
+    await vscode.workspace.fs.createDirectory(targetDir);
 
-    let targetDir = root;
-    if (folder) {
-      targetDir = vscode.Uri.joinPath(root, folder);
-      await vscode.workspace.fs.createDirectory(targetDir);
-    }
+    const baseName = stripMarkdownExtension(sanitizeFilename(options.title || 'Untitled'));
+    const fileUri = await this.findAvailableUri(targetDir, baseName);
 
-    let fileUri = vscode.Uri.joinPath(targetDir, filename);
+    const content =
+      options.content ??
+      renderTemplate(config.defaultNoteTemplate, { title: options.title || 'Untitled' }, config.dateFormat);
 
-    // Prevent overwriting existing note with same name by appending number
-    let counter = 1;
-    let nameConflict = true;
-    while (nameConflict) {
-      try {
-        await vscode.workspace.fs.stat(fileUri);
-        // File exists, generate new name
-        const base = stripMarkdownExtension(filename);
-        fileUri = vscode.Uri.joinPath(targetDir, `${base}-${counter}.md`);
-        counter++;
-      } catch {
-        // File does not exist, safe to proceed
-        nameConflict = false;
-      }
-    }
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf8'));
+    this.invalidate();
 
-    const initialContent =
-      options.content !== undefined
-        ? options.content
-        : renderTemplate(
-            config.defaultNoteTemplate,
-            { title: options.title || 'Untitled' },
-            config.dateFormat
-          );
-
-    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(initialContent, 'utf8'));
-
-    const stat = await vscode.workspace.fs.stat(fileUri);
+    const filename = path.basename(fileUri.fsPath);
     const relativePath = toRelativePath(root.fsPath, fileUri.fsPath);
     const id = `${scope}:${relativePath}`;
-    const tags = TagService.extractTags(initialContent);
+    const stat = await vscode.workspace.fs.stat(fileUri);
 
-    const noteItem: NoteItem = {
+    await this.metadataService.recordRecent(id, config.recentLimit);
+
+    return {
       id,
-      title: extractTitleFromMarkdown(initialContent, stripMarkdownExtension(path.basename(fileUri.fsPath))),
+      title: extractTitleFromMarkdown(content, stripMarkdownExtension(filename)),
       uri: fileUri,
       relativePath,
       folder,
-      filename: path.basename(fileUri.fsPath),
+      filename,
       scope,
       ctime: stat.ctime,
       mtime: stat.mtime,
       size: stat.size,
-      tags,
-      isPinned: false,
+      tags: TagService.extractTags(content),
+      isFavorite: false,
       isArchived: false,
     };
-
-    await this.metadataService.recordRecent(id, config.recentLimit);
-    return noteItem;
   }
 
-  /**
-   * Creates a new folder inside notes root.
-   */
-  public async createFolder(folderRelativePath: string, scope?: NoteScope): Promise<vscode.Uri> {
-    const config = getConfiguration();
-    const actualScope = scope || (this.getWorkspaceRoot() ? config.defaultScope : 'global');
-    const root =
-      actualScope === 'workspace' && this.getWorkspaceRoot()
-        ? this.getWorkspaceRoot()!
-        : this.getGlobalRoot();
+  /** Finds `<base>.md`, or the first free `<base>-<n>.md`, inside a directory. */
+  private async findAvailableUri(dirUri: vscode.Uri, baseName: string): Promise<vscode.Uri> {
+    for (let counter = 0; ; counter++) {
+      const filename = ensureMarkdownExtension(counter === 0 ? baseName : `${baseName}-${counter}`);
+      const candidate = vscode.Uri.joinPath(dirUri, filename);
+      try {
+        await vscode.workspace.fs.stat(candidate);
+      } catch {
+        return candidate; // stat failed, so nothing is there.
+      }
+    }
+  }
 
-    const sanitized = folderRelativePath
-      .split(/[/\\]+/)
-      .map((segment) => sanitizeFilename(segment))
-      .filter(Boolean)
-      .join('/');
+  public async createFolder(folderRelativePath: string, scope?: NoteScope): Promise<vscode.Uri> {
+    const root = this.getRoot(scope ?? this.resolveDefaultScope());
+    const sanitized = sanitizeRelativeFolderPath(folderRelativePath);
+
+    if (!sanitized) {
+      throw new Error('That folder name contains no usable characters.');
+    }
 
     const folderUri = vscode.Uri.joinPath(root, sanitized);
     await vscode.workspace.fs.createDirectory(folderUri);
+    this.invalidate();
     return folderUri;
   }
 
-  /**
-   * Renames a note file.
-   */
   public async renameNote(note: NoteItem, newTitle: string): Promise<NoteItem> {
-    const sanitized = sanitizeFilename(newTitle);
-    const newFilename = ensureMarkdownExtension(sanitized);
-    const targetUri = vscode.Uri.joinPath(vscode.Uri.file(path.dirname(note.uri.fsPath)), newFilename);
+    const newFilename = ensureMarkdownExtension(sanitizeFilename(newTitle));
+    const parentDir = vscode.Uri.file(path.dirname(note.uri.fsPath));
+    const targetUri = vscode.Uri.joinPath(parentDir, newFilename);
 
     if (note.uri.fsPath === targetUri.fsPath) {
       return note;
     }
 
     await vscode.workspace.fs.rename(note.uri, targetUri, { overwrite: false });
+    this.forgetFile(note.uri);
+    this.invalidate();
 
-    const root = note.scope === 'workspace' && this.getWorkspaceRoot() ? this.getWorkspaceRoot()! : this.getGlobalRoot();
-    const newRelativePath = toRelativePath(root.fsPath, targetUri.fsPath);
-    const newId = `${note.scope}:${newRelativePath}`;
+    const root = this.getRoot(note.scope);
+    const relativePath = toRelativePath(root.fsPath, targetUri.fsPath);
+    const id = `${note.scope}:${relativePath}`;
 
-    await this.metadataService.updateNoteId(note.id, newId);
+    await this.metadataService.updateNoteId(note.id, id);
 
     const stat = await vscode.workspace.fs.stat(targetUri);
     const content = await this.readNoteContent(targetUri);
 
     return {
       ...note,
-      id: newId,
+      id,
       title: extractTitleFromMarkdown(content, stripMarkdownExtension(newFilename)),
       uri: targetUri,
-      relativePath: newRelativePath,
+      relativePath,
       filename: newFilename,
       mtime: stat.mtime,
     };
   }
 
   /**
-   * Deletes a note file.
+   * Renames a folder in place and remaps the stored state of every note inside it.
+   * Returns the folder's new root-relative path.
    */
-  public async deleteNote(note: NoteItem, confirm = true): Promise<boolean> {
-    if (confirm) {
-      const config = getConfiguration();
-      if (config.confirmDelete) {
-        const choice = await vscode.window.showWarningMessage(
-          `Are you sure you want to delete "${note.title}"?`,
-          { modal: true },
-          'Delete Note'
-        );
-        if (choice !== 'Delete Note') {
-          return false;
-        }
-      }
+  public async renameFolder(folderPath: string, newName: string, scope: NoteScope): Promise<string> {
+    const root = this.getRoot(scope);
+    const sourceUri = vscode.Uri.joinPath(root, folderPath);
+    this.assertInsideRoot(root, sourceUri, 'folder');
+
+    const parent = folderPath.includes('/') ? folderPath.slice(0, folderPath.lastIndexOf('/')) : '';
+    const sanitizedName = sanitizeFilename(newName, '');
+    if (!sanitizedName) {
+      throw new Error('That folder name contains no usable characters.');
     }
 
-    try {
-      await vscode.workspace.fs.delete(note.uri, { useTrash: true });
-    } catch {
-      await vscode.workspace.fs.delete(note.uri, { useTrash: false });
+    const targetPath = parent ? `${parent}/${sanitizedName}` : sanitizedName;
+    if (targetPath === folderPath) {
+      return folderPath;
     }
 
-    await this.metadataService.removeNote(note.id);
-    return true;
+    const targetUri = vscode.Uri.joinPath(root, targetPath);
+    this.assertInsideRoot(root, targetUri, 'folder');
+
+    await vscode.workspace.fs.rename(sourceUri, targetUri, { overwrite: false });
+    this.forgetFilesUnder(sourceUri);
+    this.invalidate();
+
+    await this.metadataService.updateFolderId(`${scope}:${folderPath}`, `${scope}:${targetPath}`);
+    return targetPath;
   }
 
   /**
-   * Deletes a folder and all its contents.
+   * Deletes a note, preferring the OS trash. Reports whether the deletion was permanent
+   * so the caller can tell the user their note is not recoverable.
    */
-  public async deleteFolder(folderPath: string, scope: NoteScope, confirm = true): Promise<boolean> {
-    const root = scope === 'workspace' && this.getWorkspaceRoot() ? this.getWorkspaceRoot()! : this.getGlobalRoot();
+  public async deleteNote(note: NoteItem): Promise<DeleteOutcome> {
+    const outcome = await this.deleteUri(note.uri, false);
+    if (outcome.deleted) {
+      this.forgetFile(note.uri);
+      this.invalidate();
+      await this.metadataService.removeNote(note.id);
+    }
+    return outcome;
+  }
+
+  /** Deletes a folder and everything inside it, preferring the OS trash. */
+  public async deleteFolder(folderPath: string, scope: NoteScope): Promise<DeleteOutcome> {
+    const root = this.getRoot(scope);
     const folderUri = vscode.Uri.joinPath(root, folderPath);
+    this.assertInsideRoot(root, folderUri, 'folder');
 
-    if (!isPathInside(root.fsPath, folderUri.fsPath)) {
-      throw new Error('Access denied: folder is outside notes root');
+    const outcome = await this.deleteUri(folderUri, true);
+    if (outcome.deleted) {
+      this.forgetFilesUnder(folderUri);
+      this.invalidate();
+      await this.metadataService.removeNotesUnder(`${scope}:${folderPath}`);
     }
-
-    if (confirm) {
-      const config = getConfiguration();
-      if (config.confirmDelete) {
-        const choice = await vscode.window.showWarningMessage(
-          `Are you sure you want to delete folder "${folderPath}" and all notes inside?`,
-          { modal: true },
-          'Delete Folder'
-        );
-        if (choice !== 'Delete Folder') {
-          return false;
-        }
-      }
-    }
-
-    try {
-      await vscode.workspace.fs.delete(folderUri, { recursive: true, useTrash: true });
-    } catch {
-      await vscode.workspace.fs.delete(folderUri, { recursive: true, useTrash: false });
-    }
-
-    return true;
+    return outcome;
   }
 
-  /**
-   * Duplicates an existing note.
-   */
+  private async deleteUri(uri: vscode.Uri, recursive: boolean): Promise<DeleteOutcome> {
+    try {
+      await vscode.workspace.fs.delete(uri, { recursive, useTrash: true });
+      return { deleted: true, permanent: false };
+    } catch {
+      // No OS trash available (common on remotes and some Linux setups): fall back to
+      // a permanent delete, and tell the caller so it can warn the user.
+      await vscode.workspace.fs.delete(uri, { recursive, useTrash: false });
+      return { deleted: true, permanent: true };
+    }
+  }
+
   public async duplicateNote(note: NoteItem): Promise<NoteItem> {
     const content = await this.readNoteContent(note.uri);
-    const baseName = stripMarkdownExtension(note.filename);
-    const newTitle = `${baseName} (Copy)`;
-
     return this.createNote({
-      title: newTitle,
+      title: `${stripMarkdownExtension(note.filename)} (Copy)`,
       folder: note.folder,
       scope: note.scope,
       content,
     });
   }
 
-  /**
-   * Moves a note to another folder or changes its scope.
-   */
-  public async moveNote(
-    note: NoteItem,
-    targetFolder: string,
-    targetScope?: NoteScope
-  ): Promise<NoteItem> {
-    const scope = targetScope || note.scope;
-    const targetRoot =
-      scope === 'workspace' && this.getWorkspaceRoot()
-        ? this.getWorkspaceRoot()!
-        : this.getGlobalRoot();
+  /** Moves a note into another folder, and optionally another scope. */
+  public async moveNote(note: NoteItem, targetFolder: string, targetScope?: NoteScope): Promise<NoteItem> {
+    const scope = targetScope ?? note.scope;
+    const root = this.getRoot(scope);
+    const folder = sanitizeRelativeFolderPath(targetFolder);
 
-    const normalizedFolder = targetFolder.trim().replace(/^\/+|\/+$/g, '');
-    const targetDir = normalizedFolder
-      ? vscode.Uri.joinPath(targetRoot, normalizedFolder)
-      : targetRoot;
-
-    await vscode.workspace.fs.createDirectory(targetDir);
-
+    const targetDir = folder ? vscode.Uri.joinPath(root, folder) : root;
     const targetUri = vscode.Uri.joinPath(targetDir, note.filename);
+
     if (note.uri.fsPath === targetUri.fsPath) {
       return note;
     }
 
+    await vscode.workspace.fs.createDirectory(targetDir);
     await vscode.workspace.fs.rename(note.uri, targetUri, { overwrite: false });
+    this.forgetFile(note.uri);
+    this.invalidate();
 
-    const newRelativePath = toRelativePath(targetRoot.fsPath, targetUri.fsPath);
-    const newId = `${scope}:${newRelativePath}`;
+    const relativePath = toRelativePath(root.fsPath, targetUri.fsPath);
+    const id = `${scope}:${relativePath}`;
+    await this.metadataService.updateNoteId(note.id, id);
 
-    await this.metadataService.updateNoteId(note.id, newId);
-
-    return {
-      ...note,
-      id: newId,
-      uri: targetUri,
-      relativePath: newRelativePath,
-      folder: normalizedFolder,
-      scope,
-    };
+    return { ...note, id, uri: targetUri, relativePath, folder, scope };
   }
 
   /**
-   * Gets or creates today's scratchpad note (e.g. `2026-09-02.md`).
+   * Opens today's daily note, creating it if it does not exist yet.
+   * The filename is the sanitized formatted date, matched inside the configured daily folder only.
    */
-  public async getOrCreateScratchpad(scope?: NoteScope): Promise<NoteItem> {
+  public async getOrCreateDailyNote(scope?: NoteScope): Promise<NoteItem> {
     const config = getConfiguration();
-    const today = getTodayDateString(config.dateFormat);
-    const notes = await this.getAllNotes();
+    const targetScope = scope ?? this.resolveDefaultScope();
+    const dailyFolder = sanitizeRelativeFolderPath(config.dailyNoteFolder);
+    const formattedDate = getTodayDateString(config.dateFormat);
+    // The date may contain characters (`/`, `:`) that cannot appear in a filename,
+    // so match against the same sanitized name that createNote would produce.
+    const expectedName = stripMarkdownExtension(sanitizeFilename(formattedDate, 'Untitled'));
 
-    const existing = notes.find((n) => {
-      const matchScope = !scope || n.scope === scope;
-      return matchScope && stripMarkdownExtension(n.filename) === today;
-    });
+    const notes = await this.getAllNotes();
+    const existing = notes.find(
+      (note) =>
+        note.scope === targetScope &&
+        note.folder === dailyFolder &&
+        stripMarkdownExtension(note.filename) === expectedName
+    );
 
     if (existing) {
       await this.metadataService.recordRecent(existing.id, config.recentLimit);
       return existing;
     }
 
-    const scratchpadContent = renderTemplate(
-      config.scratchpadTemplate,
-      { title: `Daily Scratchpad - ${today}`, date: today },
-      config.dateFormat
-    );
-
     return this.createNote({
-      title: today,
-      folder: 'daily',
-      scope: scope || (this.getWorkspaceRoot() ? config.defaultScope : 'global'),
-      content: scratchpadContent,
+      title: formattedDate,
+      folder: dailyFolder,
+      scope: targetScope,
+      content: renderTemplate(
+        config.dailyNoteTemplate,
+        { title: formattedDate, date: formattedDate },
+        config.dateFormat
+      ),
     });
   }
 
-  /**
-   * Sorts note items according to the given sort order.
-   */
-  public sortNotes(notes: NoteItem[], sortBy?: NoteSortOrder): NoteItem[] {
-    const sort = sortBy || getConfiguration().sortBy;
-    const sorted = [...notes];
+  // --- Helpers -------------------------------------------------------------
 
-    switch (sort) {
-      case 'modifiedDesc':
-        return sorted.sort((a, b) => b.mtime - a.mtime);
+  public sortNotes(notes: readonly NoteItem[], sortBy?: NoteSortOrder): NoteItem[] {
+    const order = sortBy ?? getConfiguration().sortBy;
+    const byTitle = (a: NoteItem, b: NoteItem) =>
+      a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' });
+
+    switch (order) {
       case 'modifiedAsc':
-        return sorted.sort((a, b) => a.mtime - b.mtime);
+        return [...notes].sort((a, b) => a.mtime - b.mtime);
       case 'titleAsc':
-        return sorted.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+        return [...notes].sort(byTitle);
       case 'titleDesc':
-        return sorted.sort((a, b) => b.title.localeCompare(a.title, undefined, { numeric: true }));
+        return [...notes].sort((a, b) => byTitle(b, a));
       case 'createdDesc':
-        return sorted.sort((a, b) => b.ctime - a.ctime);
+        return [...notes].sort((a, b) => b.ctime - a.ctime);
+      case 'modifiedDesc':
       default:
-        return sorted.sort((a, b) => b.mtime - a.mtime);
+        return [...notes].sort((a, b) => b.mtime - a.mtime);
+    }
+  }
+
+  private assertInsideRoot(root: vscode.Uri, target: vscode.Uri, label: string): void {
+    if (!isPathInside(root.fsPath, target.fsPath)) {
+      throw new Error(`Refusing to touch a ${label} outside the notes folder.`);
+    }
+  }
+
+  private forgetFile(uri: vscode.Uri): void {
+    this.parsedFiles.delete(uri.fsPath);
+  }
+
+  private forgetFilesUnder(dirUri: vscode.Uri): void {
+    const prefix = `${dirUri.fsPath}${path.sep}`;
+    for (const fsPath of this.parsedFiles.keys()) {
+      if (fsPath.startsWith(prefix)) {
+        this.parsedFiles.delete(fsPath);
+      }
     }
   }
 }

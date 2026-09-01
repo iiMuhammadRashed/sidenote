@@ -1,0 +1,4 @@
+{
+  "require": ["./out/test/setup.js"],
+  "spec": ["out/test/suite/**/*.test.js"]
+}

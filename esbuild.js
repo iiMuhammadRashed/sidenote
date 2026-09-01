@@ -1,4 +1,5 @@
 const esbuild = require('esbuild');
+const fs = require('fs');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -25,6 +26,9 @@ const esbuildProblemMatcherPlugin = {
 };
 
 async function main() {
+  // Start from a clean dist so a stale sourcemap is never shipped in the VSIX.
+  fs.rmSync('dist', { recursive: true, force: true });
+
   const ctx = await esbuild.context({
     entryPoints: ['src/extension.ts'],
     bundle: true,

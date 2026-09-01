@@ -1,182 +1,156 @@
-# Sidebar Notes for VS Code
-
 <p align="center">
-  <img src="media/icon.png" alt="Sidebar Notes Logo" width="128" height="128" />
+  <img src="media/banner.png" alt="Sidenote" width="820">
 </p>
 
-<p align="center">
-  <strong>Fast, beautiful, offline-first Markdown notes directly inside VS Code's sidebar.</strong><br>
-  <em>Zero clutter. Zero proprietary databases. Full native power.</em>
-</p>
+# Sidenote
 
-<p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=iiMuhammadRashed.sidebar-notes"><img src="https://img.shields.io/visual-studio-marketplace/v/iiMuhammadRashed.sidebar-notes?style=flat-square&color=007ACC" alt="Marketplace Version" /></a>
-  <a href="https://github.com/iiMuhammadRashed/sidebar-notes/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build Status" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
-</p>
+**Markdown notes that live in your VS Code sidebar.** No account, no sync service, no proprietary format — just plain `.md` files you already own.
 
-<p align="center">
-  <img src="media/banner.png" alt="Sidebar Notes Showcase Banner" width="100%" />
-</p>
+[![CI](https://github.com/iiMuhammadRashed/sidenote/actions/workflows/ci.yml/badge.svg)](https://github.com/iiMuhammadRashed/sidenote/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
-## 🚀 Why Sidebar Notes?
+## Why Sidenote
 
-Most note-taking extensions for VS Code either embed heavy webviews with basic textareas, lock your data into hidden internal states, or introduce complicated cloud backends and bloated databases.
+Most note-taking extensions either hide your notes in a database or drop you into a webview that fights the editor. Sidenote does neither. Every note is a real Markdown file on disk, opened in a real VS Code editor, with full syntax highlighting, preview, Vim keybindings, Git history and every other editor feature you already have.
 
-**Sidebar Notes** takes a modern, filesystem-first approach:
+- **Two vaults, one tree.** Project notes live with the repo in `.notes/`; personal notes live in `~/.sidenote` and follow you into every workspace.
+- **Nothing to migrate.** Point Sidenote at an existing folder of Markdown and it just works. Uninstall it and your notes are still there.
+- **Fast on large vaults.** The tree caches parsed titles and tags per file and re-reads only what actually changed on disk.
 
-- 📂 **Real Markdown Files (`.md`)**: Notes are plain files on your disk. Portable, git-trackable, and editable in VS Code's full Monaco editor.
-- ⚡ **Blazing Fast (<20ms Activation)**: Native `TreeView` and instant `esbuild` bundling with zero runtime bloat.
-- 🌐 **Workspace & Global Notes**: Keep project-specific notes in your active repo (`.notes/`) and personal scratchpads in your global folder (`~/.sidebar-notes/`).
-- 🔍 **Instant Full-Text & Tag Search**: QuickPick search that scans titles, tags (`#tag`), folder hierarchies, and note contents in real-time.
-- 🔗 **Wiki Links (`[[Note Name]]`)**: Seamless internal note linking with auto-completion and click-to-navigate.
-- 🖱️ **Drag & Drop**: Effortlessly organize notes into folders or move them across workspace and global scopes.
-- ⭐ **Favorites & Recents**: Keep your daily essentials and pinned notes accessible at a single glance.
+## Features
 
----
+| | |
+|---|---|
+| **Sidebar tree** | Favorites, Recent, Workspace, Global, Tags and Archive sections, with real folders underneath |
+| **Full-text search** | Ranked across titles, folders, tags and note bodies, with matching-line previews |
+| **Tags** | Picked up from `#hashtags` and YAML `tags:` frontmatter; click a tag to filter the tree |
+| **Wiki links** | `[[Note Title]]` becomes a clickable link, with autocomplete as you type `[[` |
+| **Daily notes** | One keystroke opens today's note, created from your template if it does not exist yet |
+| **Favorites & archive** | Pin what you use; archive what you don't, without deleting it |
+| **Drag and drop** | Move notes between folders — or between the workspace and global vaults |
+| **Templates** | `${title}`, `${date}`, `${time}` and `${datetime}` in new-note and daily-note templates |
 
-## ✨ Features
+## Getting started
 
-### 1. Dedicated Native Sidebar
-- **Hierarchical Sections**: Favorites, Recent Notes, Workspace Notes, Global Notes, Tags, and Archive.
-- **Folder Support**: Create nested folders to organize notes by project, feature, or topic.
-- **Drag & Drop**: Drag notes into folders or across scopes with native VS Code drag-and-drop.
-- **Tag Grouping**: Notes are automatically indexed by `#tags` or YAML frontmatter.
+1. Install Sidenote and click the notes icon in the Activity Bar.
+2. Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> (<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> on macOS) and give your note a title.
 
-### 2. Quick Capture & Daily Scratchpad
-- **One-Key Note Creation**: Press `Ctrl+Alt+N` (`Cmd+Alt+N` on macOS) to instantly capture a thought.
-- **Daily Scratchpad**: Press `Ctrl+Alt+D` (`Cmd+Alt+D` on macOS) to open or create today's daily log (e.g., `2026-09-02.md`).
-- **Status Bar Shortcut**: Quick capture button on your status bar for instant note-taking.
+That's it. The notes folder is created the first time you actually save a note — Sidenote never litters an empty `.notes/` into a project you were only browsing.
 
-### 3. Fast Interactive Search
-- **Instant Palette Search**: Press `Ctrl+Alt+F` (`Cmd+Alt+F` on macOS) to search through all notes.
-- Search matches **Title**, **Folder Path**, **Tags**, and **Full Content**.
-- Live snippet preview with matching line numbers.
-- Split-to-side or pin buttons directly in search results.
+## Keyboard shortcuts
 
-### 4. Wiki-Style Linking (`[[Note Title]]`)
-- Type `[[` inside any markdown file to trigger intelligent auto-completion of your notes.
-- Click on any `[[Note Title]]` link to jump directly to that note.
+| Action | Windows / Linux | macOS |
+|---|---|---|
+| New note | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> |
+| Search notes | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> |
+| Today's daily note | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd> |
 
----
+## Commands
 
-## ⌨️ Keyboard Shortcuts
+Every command is available from the Command Palette under the **Sidenote** category.
 
-| Command | Windows / Linux | macOS |
-| :--- | :--- | :--- |
-| **New Note** | `Ctrl+Alt+N` | `Cmd+Alt+N` |
-| **Search Notes** | `Ctrl+Alt+F` | `Cmd+Alt+F` |
-| **Daily Scratchpad** | `Ctrl+Alt+D` | `Cmd+Alt+D` |
+| Command | What it does |
+|---|---|
+| `Sidenote: New Note` | Create a note in the selected folder, or the default scope |
+| `Sidenote: New Folder` | Create a folder inside a notes vault |
+| `Sidenote: Open Note` / `Open Note to the Side` | Open a note in the editor |
+| `Sidenote: Rename Note or Folder` | Rename, carrying favorites and history to the new name |
+| `Sidenote: Delete Note or Folder` | Delete via the system trash where available |
+| `Sidenote: Duplicate Note` | Copy a note alongside the original |
+| `Sidenote: Move Note to Folder...` | Move between folders and between vaults |
+| `Sidenote: Toggle Favorite` | Pin a note to the Favorites section |
+| `Sidenote: Toggle Archive` | Hide a note from the main tree without deleting it |
+| `Sidenote: Search Notes` | Ranked search over titles, folders, tags and content |
+| `Sidenote: Filter Notes by Tag` / `Clear Tag Filter` | Narrow the tree to one tag |
+| `Sidenote: Copy Wiki Link` | Copy `[[Note Title]]` to the clipboard |
+| `Sidenote: Copy Relative Path` | Copy a note or folder's path inside the vault |
+| `Sidenote: Reveal in File Explorer` | Show the file in your OS file manager |
+| `Sidenote: Open Today's Daily Note` | Open or create today's note |
+| `Sidenote: Open Markdown Preview to the Side` | Preview the current note |
+| `Sidenote: Refresh Notes` | Re-scan both vaults |
+| `Sidenote: Open Settings` | Jump to Sidenote's settings |
 
----
-
-## 🛠️ Commands Palette
-
-All commands are available under the `Sidebar Notes` category in the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
-
-- `Sidebar Notes: New Note` (`sidebarNotes.newNote`)
-- `Sidebar Notes: New Folder` (`sidebarNotes.newFolder`)
-- `Sidebar Notes: Search Notes` (`sidebarNotes.searchNotes`)
-- `Sidebar Notes: Open Today's Daily Scratchpad` (`sidebarNotes.openScratchpad`)
-- `Sidebar Notes: Filter Notes by Tag` (`sidebarNotes.filterByTag`)
-- `Sidebar Notes: Clear Tag Filter` (`sidebarNotes.clearTagFilter`)
-- `Sidebar Notes: Move Note to Folder...` (`sidebarNotes.moveNote`)
-- `Sidebar Notes: Duplicate Note` (`sidebarNotes.duplicateNote`)
-- `Sidebar Notes: Toggle Favorite / Pin` (`sidebarNotes.toggleFavorite`)
-- `Sidebar Notes: Toggle Archive` (`sidebarNotes.toggleArchive`)
-- `Sidebar Notes: Copy Note Markdown Link` (`sidebarNotes.copyNoteLink`)
-- `Sidebar Notes: Open Note Preview` (`sidebarNotes.togglePreview`)
-- `Sidebar Notes: Refresh Notes` (`sidebarNotes.refresh`)
-- `Sidebar Notes: Open Settings` (`sidebarNotes.openSettings`)
-
----
-
-## ⚙️ Configuration
-
-Customizable via VS Code Settings (`Ctrl+,` -> Search `Sidebar Notes`):
+## Settings
 
 | Setting | Default | Description |
-| :--- | :--- | :--- |
-| `sidebarNotes.notesPath` | `".notes"` | Workspace folder path for project-specific notes. |
-| `sidebarNotes.globalNotesPath` | `"~/.sidebar-notes"` | Global folder for cross-workspace personal notes. |
-| `sidebarNotes.defaultScope` | `"workspace"` | Default target when creating new notes (`workspace` or `global`). |
-| `sidebarNotes.sortBy` | `"modifiedDesc"` | Sort order: `modifiedDesc`, `modifiedAsc`, `titleAsc`, `titleDesc`, `createdDesc`. |
-| `sidebarNotes.showRecent` | `true` | Show Recent Notes section in sidebar. |
-| `sidebarNotes.recentLimit` | `7` | Maximum number of recent notes to display. |
-| `sidebarNotes.showFavorites` | `true` | Show Favorites / Pinned section. |
-| `sidebarNotes.showTags` | `true` | Show Tags section. |
-| `sidebarNotes.showArchive` | `false` | Show Archive section in sidebar. |
-| `sidebarNotes.showStatusBarItem` | `true` | Show Quick Note button on the status bar. |
-| `sidebarNotes.confirmDelete` | `true` | Require confirmation prompt before deleting notes. |
-| `sidebarNotes.defaultNoteTemplate` | `"# ${title}\n\n"` | Template for new notes (supports `${title}`, `${date}`, `${time}`, `${datetime}`). |
-| `sidebarNotes.scratchpadTemplate` | `"# Daily Scratchpad - ${date}\n\n- [ ] \n"` | Template for daily scratchpad notes. |
-| `sidebarNotes.dateFormat` | `"YYYY-MM-DD"` | Date format for templates and daily scratchpad naming. |
+|---|---|---|
+| `sidenote.notesPath` | `.notes` | Workspace-relative folder for project notes |
+| `sidenote.globalNotesPath` | `~/.sidenote` | Folder for notes shared across workspaces |
+| `sidenote.defaultScope` | `workspace` | Where new notes go when no folder is selected |
+| `sidenote.sortBy` | `modifiedDesc` | Sort order within folders and sections |
+| `sidenote.showRecent` | `true` | Show the Recent section |
+| `sidenote.recentLimit` | `7` | How many recent notes to remember |
+| `sidenote.showFavorites` | `true` | Show the Favorites section |
+| `sidenote.showTags` | `true` | Show the Tags section |
+| `sidenote.showArchive` | `false` | Show the Archive section |
+| `sidenote.showStatusBarItem` | `true` | Show the status bar New Note button |
+| `sidenote.confirmDelete` | `true` | Confirm before deleting |
+| `sidenote.defaultNoteTemplate` | `# ${title}\n\n` | Content for new notes |
+| `sidenote.dailyNoteTemplate` | `# ${date}\n\n- [ ] \n` | Content for daily notes |
+| `sidenote.dailyNoteFolder` | `Daily` | Folder for daily notes; empty means the vault root |
+| `sidenote.dateFormat` | `YYYY-MM-DD` | Date pattern for templates and daily note filenames |
 
+## Tags
+
+Both styles are recognised, and both feed the Tags section:
+
+```markdown
+---
+tags: [architecture, backend]
 ---
 
-## 🗄️ Storage Architecture
+# Service Design
 
-Sidebar Notes keeps your files completely clean and standard:
-
-1. **Workspace Notes**: Stored in `<your-project>/.notes/`. You can commit this folder to Git to share project documentation with your team, or add it to `.gitignore` for private notes.
-2. **Global Notes**: Stored in `~/.sidebar-notes/` on your system. Persists across all workspaces and project switches.
-3. **Metadata (Pins, Recents, Archive)**: Stored in VS Code's native extension storage (`workspaceState` and `globalState`), keeping your `.md` files pristine and without unwanted header noise.
-
----
-
-## 🏷️ Tagging System
-
-Tags are automatically extracted from both:
-- **Inline Hashtags**: `#work`, `#ideas`, `#project-v2`, `#todo_today` (Markdown headers like `# Header` and code blocks are automatically excluded).
-- **YAML Frontmatter**:
-  ```markdown
-  ---
-  title: My Architecture
-  tags: [architecture, backend, typescript]
-  ---
-  ```
-
----
-
-## 🏗️ Development & Contributing
-
-### Prerequisites
-- Node.js 20+
-- npm 10+
-- VS Code 1.80+
-
-### Setup
-```bash
-# Clone repository
-git clone https://github.com/iiMuhammadRashed/sidebar-notes.git
-cd sidebar-notes
-
-# Install dependencies
-npm install
-
-# Run unit tests
-npm run test-unit
-
-# Run linter and typecheck
-npm run lint
-npm run typecheck
-
-# Build development bundle
-npm run build-dev
-
-# Package into VSIX
-npm run package
+Deploy notes live in #ops. Hashtags inside `code spans` and fenced blocks are ignored.
 ```
 
-### Debugging in VS Code
-1. Open the repository in VS Code.
-2. Press `F5` to launch an **Extension Development Host** window.
-3. Test your changes in real-time.
+## Wiki links
 
----
+Type `[[` in any Markdown file to autocomplete a note title. Completed links are clickable:
 
-## 📄 License
+```markdown
+See [[Service Design]] before changing the schema.
+Labels work too: [[Service Design|the design doc]]
+```
 
-MIT © [Muhammad Rashed](https://github.com/iiMuhammadRashed). See [LICENSE](LICENSE) for details.
+Links resolve against note titles, filenames and relative paths, case-insensitively.
+
+## Where your notes live
+
+```
+your-project/
+└── .notes/              ← sidenote.notesPath
+    ├── Daily/
+    │   └── 2026-09-02.md
+    └── Architecture.md
+
+~/.sidenote/             ← sidenote.globalNotesPath
+    └── Reading List.md
+```
+
+Favorites, archive state and recent history are stored in VS Code's own state — workspace notes in workspace state, global notes in global state — so they never pollute your Markdown.
+
+## Requirements
+
+VS Code 1.75 or newer. No runtime dependencies.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). In short:
+
+```bash
+npm install
+npm run lint          # ESLint
+npm run typecheck     # tsc --noEmit
+npm run test:coverage # Mocha + c8 coverage gate
+npm run build         # production bundle
+npm run package       # build the .vsix
+```
+
+Press <kbd>F5</kbd> in VS Code to launch an Extension Development Host with Sidenote loaded.
+
+## License
+
+[MIT](LICENSE) © Muhammad Rashed

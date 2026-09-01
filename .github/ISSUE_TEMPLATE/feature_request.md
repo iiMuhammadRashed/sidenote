@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea or enhancement for Sidebar Notes
+about: Suggest an idea or enhancement for Sidenote
 title: '[FEAT] '
 labels: enhancement
 assignees: ''

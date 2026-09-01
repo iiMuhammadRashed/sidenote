@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { NoteTreeItem } from '../models/tree-item';
 import { NoteService } from '../services/note-service';
 
-export const NOTE_MIME_TYPE = 'application/vnd.code.tree.sidebarNotes';
+export const NOTE_MIME_TYPE = 'application/vnd.code.tree.sidenote';
 
 export class NotesDragAndDropController implements vscode.TreeDragAndDropController<NoteTreeItem> {
   public readonly dropMimeTypes = [NOTE_MIME_TYPE];
