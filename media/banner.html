@@ -1,0 +1,42 @@
+<!--
+  Sidenote README hero. Source of truth for media/banner.png.
+
+  Render:
+    google-chrome --headless --disable-gpu --no-sandbox --hide-scrollbars \
+      --allow-file-access-from-files --force-device-scale-factor=2 \
+      --window-size=1280,356 --screenshot=banner2x.png media/banner.html
+    magick banner2x.png -resize 1280x -strip PNG24:media/banner.png
+
+  Keep PNG24 — palette quantization bands the violet glow.
+  Requires the Inter font family and media/logo.svg.
+-->
+<html><head><style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1280px;height:356px;background:#0B0D14;font-family:'Inter Display',Inter,sans-serif;
+       display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+  .grid{position:absolute;inset:0;
+        background-image:linear-gradient(#FFFFFF12 1px,transparent 1px),linear-gradient(90deg,#FFFFFF12 1px,transparent 1px);
+        background-size:44px 44px;
+        -webkit-mask-image:radial-gradient(ellipse 70% 65% at 50% 45%,#000 0%,transparent 78%)}
+  .glow{position:absolute;width:900px;height:520px;left:50%;top:-230px;transform:translateX(-50%);
+        background:radial-gradient(ellipse at center,#6D5EF84D 0%,transparent 70%);filter:blur(46px)}
+  .wrap{position:relative;text-align:center}
+  .mark{width:88px;height:88px;margin:0 auto 24px;display:block;
+        filter:drop-shadow(0 16px 40px #6D5EF866)}
+  h1{font-size:66px;font-weight:600;letter-spacing:-.035em;color:#fff;line-height:1}
+  .tag{margin-top:16px;font-size:21px;font-weight:400;letter-spacing:-.012em;color:#9096AD}
+  .feat{margin-top:30px;display:flex;gap:10px;justify-content:center}
+  .feat span{font-size:13px;font-weight:500;letter-spacing:.005em;color:#A7ADC4;
+             border:1px solid #FFFFFF14;background:#FFFFFF08;border-radius:999px;padding:7px 15px}
+</style></head><body>
+  <div class="grid"></div><div class="glow"></div>
+  <div class="wrap">
+    <img class="mark" src="logo.svg">
+    <h1>Sidenote</h1>
+    <p class="tag">Markdown notes that live in your VS&nbsp;Code sidebar.</p>
+    <div class="feat">
+      <span>Workspace + global vaults</span><span>Tags</span><span>Wiki links</span>
+      <span>Daily notes</span><span>Full-text search</span>
+    </div>
+  </div>
+</body></html>

@@ -1,0 +1,15 @@
+<!-- Sidenote brand mark. Master source for media/icon.png. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Sidenote">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7B6BFF"/>
+      <stop offset="1" stop-color="#5F4DEE"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#tile)"/>
+  <!-- the sidebar rail -->
+  <rect x="124" y="148" width="60" height="216" rx="30" fill="#FFFFFF" opacity=".6"/>
+  <!-- the note docked beside it -->
+  <path d="M216 184a36 36 0 0 1 36-36h68l68 68v140a36 36 0 0 1-36 36h-100a36 36 0 0 1-36-36z" fill="#FFFFFF"/>
+  <path d="M320 148l68 68h-48a20 20 0 0 1-20-20z" fill="#6D5EF8" opacity=".38"/>
+</svg>
