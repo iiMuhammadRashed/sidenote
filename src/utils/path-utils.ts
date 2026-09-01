@@ -12,7 +12,6 @@ export function sanitizeFilename(name: string, fallback = 'Untitled'): string {
   // Remove invalid filename characters: / \ : * ? " < > | and control chars
   let sanitized = name
     .trim()
-    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
     // Replace multiple hyphens/spaces with a single one
     .replace(/-+/g, '-')

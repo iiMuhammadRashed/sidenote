@@ -3,8 +3,10 @@
 .github/**
 src/**
 test/**
+out/**
 .eslintrc*
 .prettierrc*
+eslint.config.*
 tsconfig.json
 esbuild.js
 *.vsix
