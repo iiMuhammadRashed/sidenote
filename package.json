@@ -66,8 +66,13 @@
     "views": {
       "sidenote-container": [
         {
+          "id": "sidenote.quickNote",
+          "name": "Quick Note",
+          "type": "webview"
+        },
+        {
           "id": "sidenote.explorer",
-          "name": "Notes",
+          "name": "All Notes",
           "type": "tree"
         }
       ]

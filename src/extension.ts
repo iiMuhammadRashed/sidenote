@@ -5,6 +5,7 @@ import { SearchService } from './services/search-service';
 import { WatcherService } from './services/watcher-service';
 import { NotesTreeProvider } from './views/notes-tree-provider';
 import { NotesDragAndDropController } from './views/notes-drag-drop';
+import { QuickNoteViewProvider } from './views/quick-note-view';
 import { NoteLinkProvider } from './providers/link-provider';
 import { NoteCompletionProvider } from './providers/completion-provider';
 import { registerNoteCommands } from './commands/note-commands';
@@ -35,6 +36,14 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  // The scratchpad panel above the tree: a real .md file, edited without leaving the sidebar.
+  const quickNote = new QuickNoteViewProvider(noteService, context.workspaceState, context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(QuickNoteViewProvider.viewId, quickNote, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
+  );
+
   context.subscriptions.push(
     treeProvider.onDidChangeTagFilter((tag) =>
       vscode.commands.executeCommand('setContext', TAG_FILTER_CONTEXT_KEY, tag !== undefined)
@@ -47,6 +56,7 @@ export function activate(context: vscode.ExtensionContext): void {
       noteService.invalidate();
       searchService.clearCache();
       treeProvider.refresh();
+      void quickNote.refresh();
     })
   );
 
@@ -78,6 +88,7 @@ export function activate(context: vscode.ExtensionContext): void {
       noteService.invalidate();
       searchService.clearCache();
       treeProvider.refresh();
+      void quickNote.refresh();
     })
   );
 

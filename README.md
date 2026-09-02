@@ -15,7 +15,9 @@
 
 Most note-taking extensions either hide your notes in a database or drop you into a webview that fights the editor. Sidenote does neither. Every note is a real Markdown file on disk, opened in a real VS Code editor, with full syntax highlighting, preview, Vim keybindings, Git history and every other editor feature you already have.
 
+- **Write without leaving the sidebar.** The Quick Note panel is a Markdown scratchpad docked in the Activity Bar, with a preview toggle. It edits a real `.md` file, so anything you jot there is still a normal file you can grep, commit, or open in a tab.
 - **Two vaults, one tree.** Project notes live with the repo in `.notes/`; personal notes live in `~/.sidenote` and follow you into every workspace.
+- **Creates nothing until you do.** No folder appears in a project you were only browsing. The notes directory is written on your first saved note and never before.
 - **Nothing to migrate.** Point Sidenote at an existing folder of Markdown and it just works. Uninstall it and your notes are still there.
 - **Fast on large vaults.** The tree caches parsed titles and tags per file and re-reads only what actually changed on disk.
 
@@ -23,6 +25,7 @@ Most note-taking extensions either hide your notes in a database or drop you int
 
 | | |
 |---|---|
+| **Quick Note panel** | A Markdown scratchpad in the sidebar with a Write/Preview toggle, auto-save, and one note per vault |
 | **Sidebar tree** | Favorites, Recent, Workspace, Global, Tags and Archive sections, with real folders underneath |
 | **Full-text search** | Ranked across titles, folders, tags and note bodies, with matching-line previews |
 | **Tags** | Picked up from `#hashtags` and YAML `tags:` frontmatter; click a tag to filter the tree |
@@ -35,9 +38,15 @@ Most note-taking extensions either hide your notes in a database or drop you int
 ## Getting started
 
 1. Install Sidenote and click the notes icon in the Activity Bar.
-2. Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> (<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> on macOS) and give your note a title.
+2. Start typing in the **Quick Note** panel at the top. That's the fastest path — no dialog, no filename.
 
-That's it. The notes folder is created the first time you actually save a note — Sidenote never litters an empty `.notes/` into a project you were only browsing.
+For a note you want to name and keep, press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> (<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd> on macOS) instead; it appears under **All Notes**.
+
+Either way, the notes folder is created the first time you actually save something — Sidenote never litters an empty `.notes/` into a project you were only browsing.
+
+### The Quick Note panel
+
+`This project` / `Global` switches which vault you are writing into — each keeps its own `Quick Note.md`. `Write` and `Preview` toggle rendering, and the arrow opens the note as a normal editor tab. Edits save themselves a moment after you stop typing.
 
 ## Keyboard shortcuts
 
@@ -124,6 +133,7 @@ your-project/
 └── .notes/              ← sidenote.notesPath
     ├── Daily/
     │   └── 2026-09-02.md
+    ├── Quick Note.md    ← the sidebar panel writes here
     └── Architecture.md
 
 ~/.sidenote/             ← sidenote.globalNotesPath

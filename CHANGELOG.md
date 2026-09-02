@@ -5,6 +5,22 @@ All notable changes to **Sidenote** are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Quick Note panel**: a Markdown scratchpad rendered directly in the sidebar, with a
+  Write/Preview toggle, debounced auto-save and a per-vault note. It edits a real `.md`
+  file, so the note stays greppable, git-versionable and openable in an editor tab.
+
+### Fixed
+
+- The extension no longer creates `~/.sidenote` at activation. Nothing is written until
+  you save a note.
+- Removed the `[node.js fs] readdir ... ENOENT` message logged once per window for every
+  project without a notes folder. The root's parent is now listed instead of reading a
+  directory that is not there.
+
 ## [1.0.0] - 2026-09-02
 
 First public release.
