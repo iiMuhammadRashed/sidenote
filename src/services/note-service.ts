@@ -77,21 +77,6 @@ export class NoteService {
     return vscode.Uri.file(resolveHome(configured));
   }
 
-  /**
-   * Creates the global notes folder if it is missing.
-   *
-   * Unlike the workspace folder, this one is the user's own dedicated directory, so creating
-   * it up front is not intrusive — and the global file watcher needs it to exist to attach.
-   * The workspace folder stays lazy so that merely opening a project never adds `.notes/` to it.
-   */
-  public async ensureGlobalRoot(): Promise<void> {
-    try {
-      await vscode.workspace.fs.createDirectory(this.getGlobalRoot());
-    } catch {
-      // Already present, or the path is unwritable; either way the scan degrades to "no notes".
-    }
-  }
-
   /** Resolves the root directory for a scope, falling back to global when no workspace is open. */
   public getRoot(scope: NoteScope): vscode.Uri {
     if (scope === 'workspace') {
@@ -129,14 +114,39 @@ export class NoteService {
     const notes: NoteItem[] = [];
 
     const workspaceRoot = this.getWorkspaceRoot();
-    if (workspaceRoot) {
+    if (workspaceRoot && (await this.isExistingDirectory(workspaceRoot))) {
       notes.push(...(await this.readNotesFromDirectory(workspaceRoot, 'workspace', workspaceRoot.fsPath, 0)));
     }
 
     const globalRoot = this.getGlobalRoot();
-    notes.push(...(await this.readNotesFromDirectory(globalRoot, 'global', globalRoot.fsPath, 0)));
+    if (await this.isExistingDirectory(globalRoot)) {
+      notes.push(...(await this.readNotesFromDirectory(globalRoot, 'global', globalRoot.fsPath, 0)));
+    }
 
     return notes;
+  }
+
+  /**
+   * Reports whether a directory exists, without ever calling into a path that is missing.
+   *
+   * Reading a non-existent directory makes VS Code's own disk provider log
+   * `[node.js fs] readdir ... ENOENT` to the extension host console before our catch
+   * can run. Since the notes root is absent in most projects, that noise appeared in
+   * every window. Listing the parent and looking for the entry avoids the failed call.
+   */
+  private async isExistingDirectory(dirUri: vscode.Uri): Promise<boolean> {
+    const parentPath = path.dirname(dirUri.fsPath);
+    if (parentPath === dirUri.fsPath) {
+      return false; // Filesystem root; nothing sensible to probe.
+    }
+
+    const name = path.basename(dirUri.fsPath);
+    try {
+      const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(parentPath));
+      return entries.some(([entryName, type]) => entryName === name && type === vscode.FileType.Directory);
+    } catch {
+      return false; // Parent is missing too, so the root cannot exist.
+    }
   }
 
   private async readNotesFromDirectory(

@@ -22,10 +22,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const metadataService = new MetadataService(context.workspaceState, context.globalState);
   const noteService = new NoteService(metadataService);
   const searchService = new SearchService(noteService);
-  // The global folder must exist before its file watcher can attach to it.
   const watcherService = new WatcherService(noteService);
   context.subscriptions.push(watcherService);
-  void noteService.ensureGlobalRoot().then(() => watcherService.setupWatchers());
 
   const treeProvider = new NotesTreeProvider(noteService, metadataService);
   context.subscriptions.push(

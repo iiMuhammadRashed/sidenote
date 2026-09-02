@@ -54,6 +54,34 @@ describe('NoteService', () => {
     });
   });
 
+  describe('creates nothing on its own', () => {
+    it('never touches the filesystem while only reading notes', async () => {
+      const before = fs.readdirSync(workspaceDir);
+
+      await service.getAllNotes();
+
+      assert.deepStrictEqual(fs.readdirSync(workspaceDir), before, 'scanning created something');
+      assert.strictEqual(fs.existsSync(notesRoot()), false);
+      assert.strictEqual(fs.existsSync(globalDir), false, 'the global folder must not be created either');
+    });
+
+    it('returns no notes when neither root exists, without erroring', async () => {
+      assert.deepStrictEqual(await service.getAllNotes(), []);
+    });
+
+    it('reads a nested notesPath whose parent is also missing', async () => {
+      testConfiguration.set('notesPath', 'docs/notes');
+      assert.deepStrictEqual(await service.getAllNotes(), []);
+
+      const nested = path.join(workspaceDir, 'docs', 'notes');
+      fs.mkdirSync(nested, { recursive: true });
+      fs.writeFileSync(path.join(nested, 'Deep.md'), '# Deep');
+      service.invalidate();
+
+      assert.deepStrictEqual((await service.getAllNotes()).map((n) => n.title), ['Deep']);
+    });
+  });
+
   describe('createNote', () => {
     it('does not create the notes directory until a note is written', async () => {
       assert.strictEqual(fs.existsSync(notesRoot()), false);
