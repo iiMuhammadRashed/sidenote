@@ -5,31 +5,34 @@ import * as path from 'path';
 import { Uri, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
 import { MetadataService } from '../../src/services/metadata-service';
+import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 
 describe('NoteService', () => {
   let tempRoot: string;
   let workspaceDir: string;
-  let globalDir: string;
+  let vaultDir: string;
   let service: NoteService;
   let metadata: MetadataService;
 
-  const notesRoot = (): string => path.join(workspaceDir, '.notes');
+  /** Where this project's notes land: inside the vault, never inside the project. */
+  const notesRoot = (): string => path.join(vaultDir, 'projects', path.basename(workspaceDir));
+  const globalRoot = (): string => path.join(vaultDir, 'global');
   const readNote = (relativePath: string): string =>
     fs.readFileSync(path.join(notesRoot(), relativePath), 'utf8');
 
   beforeEach(() => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sidenote-test-'));
     workspaceDir = path.join(tempRoot, 'workspace');
-    globalDir = path.join(tempRoot, 'global');
+    vaultDir = path.join(tempRoot, 'vault');
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     testConfiguration.clear();
-    testConfiguration.set('globalNotesPath', globalDir);
+    testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
     metadata = new MetadataService(new MockMemento(), new MockMemento());
-    service = new NoteService(metadata);
+    service = new NoteService(metadata, new ProjectRegistry(new MockMemento()));
   });
 
   afterEach(() => {
@@ -39,18 +42,51 @@ describe('NoteService', () => {
   });
 
   describe('roots', () => {
-    it('keeps a dotted notesPath such as .notes verbatim', () => {
-      assert.strictEqual(service.getWorkspaceRoot()?.fsPath, notesRoot());
+    it('keeps project notes in the vault, never inside the project', () => {
+      const root = service.getWorkspaceRoot()!.fsPath;
+
+      assert.strictEqual(root, notesRoot());
+      assert.ok(!root.startsWith(workspaceDir), `${root} is inside the project`);
     });
 
-    it('falls back to .notes when notesPath tries to escape the workspace', () => {
-      testConfiguration.set('notesPath', '../outside');
-      assert.strictEqual(service.getWorkspaceRoot()?.fsPath, notesRoot());
+    it('names the vault folder after the project directory', () => {
+      assert.strictEqual(path.basename(service.getWorkspaceRoot()!.fsPath), 'workspace');
+    });
+
+    it('gives two projects with the same name separate folders', () => {
+      const registry = new ProjectRegistry(new MockMemento());
+      const first = registry.folderNameFor('/a/api');
+      const second = registry.folderNameFor('/b/api');
+
+      assert.strictEqual(first, 'api');
+      assert.strictEqual(second, 'api-2');
+    });
+
+    it('keeps a project\'s notes when its directory is renamed back and forth', () => {
+      const registry = new ProjectRegistry(new MockMemento());
+      const original = registry.folderNameFor('/work/api');
+
+      assert.strictEqual(registry.folderNameFor('/work/api'), original, 'same path, same folder');
+    });
+
+    it('stores notes inside the project only when asked to', () => {
+      testConfiguration.set('projectNotesLocation', 'repo');
+      assert.strictEqual(service.getWorkspaceRoot()?.fsPath, path.join(workspaceDir, '.notes'));
+
+      testConfiguration.set('repoNotesPath', 'docs/notes');
+      assert.strictEqual(service.getWorkspaceRoot()?.fsPath, path.join(workspaceDir, 'docs', 'notes'));
+    });
+
+    it('refuses a repo notes path that escapes the project', () => {
+      testConfiguration.set('projectNotesLocation', 'repo');
+      testConfiguration.set('repoNotesPath', '../outside');
+
+      assert.strictEqual(service.getWorkspaceRoot()?.fsPath, path.join(workspaceDir, '.notes'));
     });
 
     it('resolves the workspace scope to the global root when no workspace is open', () => {
       testState.workspaceFolders = undefined;
-      assert.strictEqual(service.getRoot('workspace').fsPath, path.resolve(globalDir));
+      assert.strictEqual(service.getRoot('workspace').fsPath, path.resolve(globalRoot()));
     });
   });
 
@@ -62,15 +98,16 @@ describe('NoteService', () => {
 
       assert.deepStrictEqual(fs.readdirSync(workspaceDir), before, 'scanning created something');
       assert.strictEqual(fs.existsSync(notesRoot()), false);
-      assert.strictEqual(fs.existsSync(globalDir), false, 'the global folder must not be created either');
+      assert.strictEqual(fs.existsSync(vaultDir), false, 'the vault must not be created either');
     });
 
     it('returns no notes when neither root exists, without erroring', async () => {
       assert.deepStrictEqual(await service.getAllNotes(), []);
     });
 
-    it('reads a nested notesPath whose parent is also missing', async () => {
-      testConfiguration.set('notesPath', 'docs/notes');
+    it('reads a nested repo notes path whose parent is also missing', async () => {
+      testConfiguration.set('projectNotesLocation', 'repo');
+      testConfiguration.set('repoNotesPath', 'docs/notes');
       assert.deepStrictEqual(await service.getAllNotes(), []);
 
       const nested = path.join(workspaceDir, 'docs', 'notes');
@@ -210,7 +247,7 @@ describe('NoteService', () => {
 
       assert.strictEqual(moved.scope, 'global');
       assert.strictEqual(moved.id, 'global:Inbox/Portable.md');
-      assert.strictEqual(fs.existsSync(path.join(globalDir, 'Inbox', 'Portable.md')), true);
+      assert.strictEqual(fs.existsSync(path.join(globalRoot(), 'Inbox', 'Portable.md')), true);
       assert.deepStrictEqual(metadata.getRecentIds(), ['global:Inbox/Portable.md']);
     });
 

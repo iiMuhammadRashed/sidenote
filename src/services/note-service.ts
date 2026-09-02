@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { NoteItem, NoteScope } from '../models/note';
 import { MetadataService } from './metadata-service';
+import { ProjectRegistry } from './project-registry';
 import { TagService } from './tag-service';
 import {
   sanitizeFilename,
@@ -41,7 +42,10 @@ export class NoteService {
   /** In-flight or completed scan of the whole vault; cleared by {@link invalidate}. */
   private pendingScan?: Promise<NoteItem[]>;
 
-  constructor(private readonly metadataService: MetadataService) {}
+  constructor(
+    private readonly metadataService: MetadataService,
+    private readonly projects: ProjectRegistry
+  ) {}
 
   /**
    * Drops the cached note list. Parsed file contents survive, since they are
@@ -53,28 +57,45 @@ export class NoteService {
 
   // --- Roots ---------------------------------------------------------------
 
+  /** The vault: one folder in your home directory holding every note Sidenote manages. */
+  public getVaultRoot(): vscode.Uri {
+    const configured = getConfiguration().vaultPath.trim() || '~/.sidenote';
+    return vscode.Uri.file(resolveHome(configured));
+  }
+
   /**
-   * Returns the workspace notes directory, or undefined when no workspace is open.
-   * Only the first workspace folder is used in a multi-root workspace.
+   * Notes for the current project, or undefined when no project is open.
+   *
+   * These live in the vault by default, not in the project directory. Notes are
+   * personal, and a folder inside the repo ends up staged, reviewed, or pushed to a
+   * team remote by accident. Teams who genuinely want checked-in project docs can
+   * set `sidenote.projectNotesLocation` to `repo`.
    */
   public getWorkspaceRoot(): vscode.Uri | undefined {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
       return undefined;
     }
-    // The notes path is the user's own setting, so dotted names like `.notes` are kept
-    // verbatim; only traversal out of the workspace is rejected.
-    const configured = getConfiguration().notesPath.trim();
-    const relativePath =
-      configured && !path.isAbsolute(configured) && !configured.split(/[/\\]+/).includes('..')
-        ? configured
-        : '.notes';
-    return vscode.Uri.joinPath(folders[0].uri, relativePath);
+
+    const projectUri = folders[0].uri;
+    const config = getConfiguration();
+
+    if (config.projectNotesLocation === 'repo') {
+      // Only a relative path inside the project is accepted; anything else is a typo
+      // we should not act on, so fall back to the default.
+      const configured = config.repoNotesPath.trim();
+      const isSafe =
+        configured !== '' && !path.isAbsolute(configured) && !configured.split(/[/\\]+/).includes('..');
+      return vscode.Uri.joinPath(projectUri, isSafe ? configured : '.notes');
+    }
+
+    const folderName = this.projects.folderNameFor(projectUri.fsPath);
+    return vscode.Uri.joinPath(this.getVaultRoot(), 'projects', folderName);
   }
 
+  /** Notes available in every window, kept beside the per-project folders in the vault. */
   public getGlobalRoot(): vscode.Uri {
-    const configured = getConfiguration().globalNotesPath || '~/.sidenote';
-    return vscode.Uri.file(resolveHome(configured));
+    return vscode.Uri.joinPath(this.getVaultRoot(), 'global');
   }
 
   /** Resolves the root directory for a scope, falling back to global when no workspace is open. */

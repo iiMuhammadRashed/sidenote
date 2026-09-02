@@ -7,6 +7,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Project notes are private by default.** They now live in the vault
+  (`~/.sidenote/projects/<project>/`) instead of a `.notes/` folder inside the project.
+  Notes are personal, and a folder in the repo gets staged, reviewed, or pushed to a
+  team remote by accident. Teams who want checked-in project docs can set
+  `sidenote.projectNotesLocation` to `repo`.
+- `sidenote.notesPath` and `sidenote.globalNotesPath` are replaced by
+  `sidenote.vaultPath`, `sidenote.projectNotesLocation` and `sidenote.repoNotesPath`.
+- **Search is fuzzy.** `nsvc` finds `note-service`; word-boundary and consecutive
+  matches rank above scattered ones. Content hits now open the note on the matched
+  line rather than at the top of the file.
+
 ### Added
 
 - **Quick Note panel**: a Markdown scratchpad rendered directly in the sidebar, with a

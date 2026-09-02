@@ -19,6 +19,8 @@ interface NoteQuickPickButton extends vscode.QuickInputButton {
 
 interface NoteQuickPickItem extends vscode.QuickPickItem {
   note: NoteItem;
+  /** Line to jump to when this result came from the note's body. */
+  line?: number;
   buttons: readonly NoteQuickPickButton[];
 }
 
@@ -29,10 +31,13 @@ export function registerSearchCommands(
   metadataService: MetadataService,
   treeProvider: NotesTreeProvider
 ): void {
-  const openNote = async (note: NoteItem, beside: boolean): Promise<void> => {
+  const openNote = async (note: NoteItem, beside: boolean, line?: number): Promise<void> => {
     const document = await vscode.workspace.openTextDocument(note.uri);
+    // Land on the matched line so a content hit does not make the user search twice.
+    const target = line === undefined ? undefined : new vscode.Range(line - 1, 0, line - 1, 0);
     await vscode.window.showTextDocument(document, {
       preview: false,
+      ...(target ? { selection: target } : {}),
       ...(beside ? { viewColumn: vscode.ViewColumn.Beside } : {}),
     });
     await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
@@ -45,8 +50,10 @@ export function registerSearchCommands(
 
       const quickPick = vscode.window.createQuickPick<NoteQuickPickItem>();
       quickPick.placeholder = 'Search notes by title, folder, tag or full text...';
-      quickPick.matchOnDescription = true;
-      quickPick.matchOnDetail = true;
+      // Results arrive already ranked by our own fuzzy scorer, and each item sets
+      // alwaysShow so the quick pick's own label filter cannot drop a body match.
+      quickPick.matchOnDescription = false;
+      quickPick.matchOnDetail = false;
       quickPick.items = toItems(noteService.sortNotes(candidates));
 
       let debounceTimer: NodeJS.Timeout | undefined;
@@ -68,9 +75,8 @@ export function registerSearchCommands(
             if (queryId !== latestQueryId) {
               return;
             }
-            quickPick.items = toItems(
-              results.map((result) => result.note),
-              new Map(results.filter((r) => r.excerpt).map((r) => [r.note.id, r.excerpt!]))
+            quickPick.items = results.map((result) =>
+              toItem(result.note, result.excerpt, result.matchedLine)
             );
           } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
@@ -89,13 +95,13 @@ export function registerSearchCommands(
           return;
         }
         quickPick.hide();
-        await openNote(selected.note, false);
+        await openNote(selected.note, false, selected.line);
       });
 
       quickPick.onDidTriggerItemButton(async (event) => {
         if (toAction(event.button) === 'openToSide') {
           quickPick.hide();
-          await openNote(event.item.note, true);
+          await openNote(event.item.note, true, event.item.line);
           return;
         }
 
@@ -159,12 +165,20 @@ function toAction(button: vscode.QuickInputButton): ItemAction | undefined {
   return (button as Partial<NoteQuickPickButton>).action;
 }
 
-function toItems(notes: readonly NoteItem[], excerpts?: ReadonlyMap<string, string>): NoteQuickPickItem[] {
-  return notes.map((note) => ({
+function toItems(notes: readonly NoteItem[]): NoteQuickPickItem[] {
+  return notes.map((note) => toItem(note));
+}
+
+function toItem(note: NoteItem, excerpt?: string, line?: number): NoteQuickPickItem {
+  return {
     label: `${note.isFavorite ? '$(star-full) ' : '$(markdown) '}${note.title}`,
     description: describeNote(note),
-    detail: excerpts?.get(note.id),
+    detail: line === undefined ? excerpt : `$(arrow-right) line ${line}: ${excerpt ?? ''}`.trim(),
+    // The quick pick filters by label; our results are already scored and may match on
+    // body text that never appears in the label, so opt each one out of that filter.
+    alwaysShow: true,
     note,
+    line,
     buttons: [
       { action: 'openToSide', iconPath: new vscode.ThemeIcon('split-horizontal'), tooltip: 'Open to the Side' },
       {
@@ -173,7 +187,7 @@ function toItems(notes: readonly NoteItem[], excerpts?: ReadonlyMap<string, stri
         tooltip: note.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
       },
     ],
-  }));
+  };
 }
 
 function describeNote(note: NoteItem): string {

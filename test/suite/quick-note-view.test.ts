@@ -5,6 +5,7 @@ import * as path from 'path';
 import { Uri, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
 import { MetadataService } from '../../src/services/metadata-service';
+import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 import { QuickNoteViewProvider } from '../../src/views/quick-note-view';
 
@@ -62,24 +63,25 @@ async function waitForState(
 describe('QuickNoteViewProvider', () => {
   let tempRoot: string;
   let workspaceDir: string;
-  let globalDir: string;
+  let vaultDir: string;
   let provider: QuickNoteViewProvider;
   let view: FakeWebviewView;
   let noteService: NoteService;
 
-  const quickNotePath = (): string => path.join(workspaceDir, '.notes', 'Quick Note.md');
+  const projectRoot = (): string => path.join(vaultDir, 'projects', path.basename(workspaceDir));
+  const quickNotePath = (): string => path.join(projectRoot(), 'Quick Note.md');
 
   beforeEach(() => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sidenote-qn-'));
     workspaceDir = path.join(tempRoot, 'workspace');
-    globalDir = path.join(tempRoot, 'global');
+    vaultDir = path.join(tempRoot, 'vault');
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     testConfiguration.clear();
-    testConfiguration.set('globalNotesPath', globalDir);
+    testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
-    noteService = new NoteService(new MetadataService(new MockMemento(), new MockMemento()));
+    noteService = new NoteService(new MetadataService(new MockMemento(), new MockMemento()), new ProjectRegistry(new MockMemento()));
     provider = new QuickNoteViewProvider(noteService, new MockMemento(), Uri.file(tempRoot) as never);
     view = new FakeWebviewView();
     provider.resolveWebviewView(view as never);
@@ -103,8 +105,8 @@ describe('QuickNoteViewProvider', () => {
     view.send({ type: 'ready' });
     await waitForState(view);
 
-    assert.strictEqual(fs.existsSync(path.join(workspaceDir, '.notes')), false);
-    assert.strictEqual(fs.existsSync(globalDir), false);
+    assert.strictEqual(fs.existsSync(projectRoot()), false);
+    assert.strictEqual(fs.existsSync(vaultDir), false);
   });
 
   it('does not write a file for an edit that leaves the note empty', async () => {
@@ -114,7 +116,7 @@ describe('QuickNoteViewProvider', () => {
     view.send({ type: 'edit', text: '   \n  ' });
     await provider.flush();
 
-    assert.strictEqual(fs.existsSync(path.join(workspaceDir, '.notes')), false);
+    assert.strictEqual(fs.existsSync(projectRoot()), false);
   });
 
   it('writes the note, creating the notes folder, on the first real keystroke', async () => {
@@ -162,7 +164,7 @@ describe('QuickNoteViewProvider', () => {
     view.send({ type: 'edit', text: 'global' });
     await provider.flush();
 
-    assert.strictEqual(fs.readFileSync(path.join(globalDir, 'Quick Note.md'), 'utf8'), 'global');
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'global', 'Quick Note.md'), 'utf8'), 'global');
     assert.strictEqual(fs.readFileSync(quickNotePath(), 'utf8'), 'project');
   });
 

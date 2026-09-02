@@ -3,8 +3,9 @@ import * as vscode from 'vscode';
 export const CONFIG_SECTION = 'sidenote';
 
 export const CONFIG_KEYS = {
-  NOTES_PATH: 'notesPath',
-  GLOBAL_NOTES_PATH: 'globalNotesPath',
+  VAULT_PATH: 'vaultPath',
+  PROJECT_NOTES_LOCATION: 'projectNotesLocation',
+  REPO_NOTES_PATH: 'repoNotesPath',
   DEFAULT_SCOPE: 'defaultScope',
   SORT_BY: 'sortBy',
   SHOW_RECENT: 'showRecent',
@@ -29,9 +30,13 @@ export type NoteSortOrder =
 
 export type NoteDefaultScope = 'workspace' | 'global';
 
+/** Where a project's notes are kept: privately in the vault, or inside the repo. */
+export type ProjectNotesLocation = 'vault' | 'repo';
+
 export interface ExtensionConfig {
-  notesPath: string;
-  globalNotesPath: string;
+  vaultPath: string;
+  projectNotesLocation: ProjectNotesLocation;
+  repoNotesPath: string;
   defaultScope: NoteDefaultScope;
   sortBy: NoteSortOrder;
   showRecent: boolean;
@@ -50,8 +55,9 @@ export interface ExtensionConfig {
 export function getConfiguration(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
-    notesPath: cfg.get<string>(CONFIG_KEYS.NOTES_PATH, '.notes'),
-    globalNotesPath: cfg.get<string>(CONFIG_KEYS.GLOBAL_NOTES_PATH, '~/.sidenote'),
+    vaultPath: cfg.get<string>(CONFIG_KEYS.VAULT_PATH, '~/.sidenote'),
+    projectNotesLocation: cfg.get<ProjectNotesLocation>(CONFIG_KEYS.PROJECT_NOTES_LOCATION, 'vault'),
+    repoNotesPath: cfg.get<string>(CONFIG_KEYS.REPO_NOTES_PATH, '.notes'),
     defaultScope: cfg.get<NoteDefaultScope>(CONFIG_KEYS.DEFAULT_SCOPE, 'workspace'),
     sortBy: cfg.get<NoteSortOrder>(CONFIG_KEYS.SORT_BY, 'modifiedDesc'),
     showRecent: cfg.get<boolean>(CONFIG_KEYS.SHOW_RECENT, true),

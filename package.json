@@ -316,16 +316,29 @@
     "configuration": {
       "title": "Sidenote",
       "properties": {
-        "sidenote.notesPath": {
-          "type": "string",
-          "default": ".notes",
-          "markdownDescription": "Workspace-relative folder used for project notes. Created on demand the first time you add a note."
-        },
-        "sidenote.globalNotesPath": {
+        "sidenote.vaultPath": {
           "type": "string",
           "default": "~/.sidenote",
-          "markdownDescription": "Folder used for notes shared across all workspaces. `~` expands to your home directory.",
-          "scope": "machine"
+          "scope": "machine",
+          "markdownDescription": "Folder holding every note Sidenote manages. It lives outside your projects, so notes are never committed by accident. Back it up or keep it in a private repo like any other folder."
+        },
+        "sidenote.projectNotesLocation": {
+          "type": "string",
+          "enum": [
+            "vault",
+            "repo"
+          ],
+          "enumDescriptions": [
+            "Keep this project's notes privately in the vault (recommended)",
+            "Keep them inside the project folder, where your team will see them"
+          ],
+          "default": "vault",
+          "markdownDescription": "Where notes for the current project are stored. `vault` keeps them out of version control; `repo` writes them into the project at `#sidenote.repoNotesPath#`."
+        },
+        "sidenote.repoNotesPath": {
+          "type": "string",
+          "default": ".notes",
+          "markdownDescription": "Project-relative folder for notes, used only when `#sidenote.projectNotesLocation#` is `repo`."
         },
         "sidenote.defaultScope": {
           "type": "string",

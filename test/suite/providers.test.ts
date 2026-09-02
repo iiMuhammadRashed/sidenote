@@ -5,6 +5,7 @@ import * as path from 'path';
 import { Uri, Position, TextDocument, DataTransfer, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
 import { MetadataService } from '../../src/services/metadata-service';
+import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 import { NoteLinkProvider } from '../../src/providers/link-provider';
 import { NoteCompletionProvider } from '../../src/providers/completion-provider';
@@ -18,18 +19,20 @@ const noToken = {} as never;
 describe('Markdown providers', () => {
   let tempRoot: string;
   let workspaceDir: string;
+  let vaultDir: string;
   let service: NoteService;
 
   beforeEach(() => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sidenote-providers-'));
     workspaceDir = path.join(tempRoot, 'workspace');
+    vaultDir = path.join(tempRoot, 'vault');
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     testConfiguration.clear();
-    testConfiguration.set('globalNotesPath', path.join(tempRoot, 'global'));
+    testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
-    service = new NoteService(new MetadataService(new MockMemento(), new MockMemento()));
+    service = new NoteService(new MetadataService(new MockMemento(), new MockMemento()), new ProjectRegistry(new MockMemento()));
   });
 
   afterEach(() => {
@@ -134,7 +137,7 @@ describe('Markdown providers', () => {
       await controller.handleDrop(folderItem, transfer as never, noToken);
 
       assert.strictEqual(
-        fs.existsSync(path.join(workspaceDir, '.notes', 'Work', 'Draggable.md')),
+        fs.existsSync(path.join(vaultDir, 'projects', path.basename(workspaceDir), 'Work', 'Draggable.md')),
         true
       );
     });
@@ -152,7 +155,7 @@ describe('Markdown providers', () => {
         noToken
       );
 
-      assert.strictEqual(fs.existsSync(path.join(tempRoot, 'global', 'Shared.md')), true);
+      assert.strictEqual(fs.existsSync(path.join(vaultDir, 'global', 'Shared.md')), true);
     });
 
     it('ignores a drop onto a section that is not a real location', async () => {

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { MetadataService } from './services/metadata-service';
 import { NoteService } from './services/note-service';
+import { ProjectRegistry } from './services/project-registry';
 import { SearchService } from './services/search-service';
 import { WatcherService } from './services/watcher-service';
 import { NotesTreeProvider } from './views/notes-tree-provider';
@@ -21,7 +22,7 @@ const TAG_FILTER_CONTEXT_KEY = 'sidenote.hasTagFilter';
 
 export function activate(context: vscode.ExtensionContext): void {
   const metadataService = new MetadataService(context.workspaceState, context.globalState);
-  const noteService = new NoteService(metadataService);
+  const noteService = new NoteService(metadataService, new ProjectRegistry(context.globalState));
   const searchService = new SearchService(noteService);
   const watcherService = new WatcherService(noteService);
   context.subscriptions.push(watcherService);

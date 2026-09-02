@@ -1,13 +1,21 @@
 import { NoteItem, NoteScope } from '../models/note';
 import { NoteService } from './note-service';
+import { fuzzyMatch } from '../utils/fuzzy';
 
 export interface SearchResult {
   note: NoteItem;
   score: number;
   matchType: 'title' | 'tag' | 'path' | 'content';
   excerpt?: string;
+  /** 1-based line the content match was found on, so the note can open right there. */
   matchedLine?: number;
 }
+
+/** How much better a title hit ranks than the same text found in the body. */
+const TITLE_WEIGHT = 4;
+const TAG_WEIGHT = 3;
+const PATH_WEIGHT = 2;
+const CONTENT_BASE_SCORE = 12;
 
 interface CachedNoteContent {
   mtime: number;
@@ -62,68 +70,19 @@ export class SearchService {
     const queryTokens = trimmed.split(/\s+/).filter(Boolean);
 
     for (const note of filteredNotes) {
-      const titleLower = note.title.toLowerCase();
-      const pathLower = note.relativePath.toLowerCase();
-
-      // Check title match
-      if (titleLower === trimmed) {
-        results.push({
-          note,
-          score: 100,
-          matchType: 'title',
-        });
+      const best = this.bestMetadataMatch(note, trimmed);
+      if (best) {
+        results.push(best);
         continue;
       }
 
-      if (titleLower.startsWith(trimmed)) {
-        results.push({
-          note,
-          score: 90,
-          matchType: 'title',
-        });
-        continue;
-      }
-
-      const allTokensInTitle = queryTokens.every((t) => titleLower.includes(t));
-      if (allTokensInTitle) {
-        results.push({
-          note,
-          score: 80,
-          matchType: 'title',
-        });
-        continue;
-      }
-
-      // Check tag match
-      const matchingTag = note.tags.find((t) => t.includes(trimmed) || queryTokens.some((tok) => t.includes(tok)));
-      if (matchingTag) {
-        results.push({
-          note,
-          score: 70,
-          matchType: 'tag',
-          excerpt: `Tag: #${matchingTag}`,
-        });
-        continue;
-      }
-
-      // Check path match
-      if (pathLower.includes(trimmed)) {
-        results.push({
-          note,
-          score: 50,
-          matchType: 'path',
-          excerpt: `Folder: ${note.folder || 'Root'}`,
-        });
-        continue;
-      }
-
-      // Check content match (with cache)
+      // Only read the file when the cheap fields missed, which keeps typing responsive.
       const content = await this.getNoteContent(note);
       const contentMatch = this.searchInContent(content, queryTokens);
       if (contentMatch) {
         results.push({
           note,
-          score: 30,
+          score: CONTENT_BASE_SCORE,
           matchType: 'content',
           excerpt: contentMatch.snippet,
           matchedLine: contentMatch.line,
@@ -132,6 +91,35 @@ export class SearchService {
     }
 
     return results.sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Best fuzzy hit across a note's title, tags and path. Fuzzy matching means `nsvc`
+   * finds `note-service`, which is how people actually recall a filename.
+   */
+  private bestMetadataMatch(note: NoteItem, query: string): SearchResult | undefined {
+    const titleMatch = fuzzyMatch(query, note.title);
+    let best: SearchResult | undefined = titleMatch
+      ? { note, score: titleMatch.score * TITLE_WEIGHT, matchType: 'title' }
+      : undefined;
+
+    for (const tag of note.tags) {
+      const tagMatch = fuzzyMatch(query, tag);
+      const score = tagMatch ? tagMatch.score * TAG_WEIGHT : -1;
+      if (tagMatch && (!best || score > best.score)) {
+        best = { note, score, matchType: 'tag', excerpt: `#${tag}` };
+      }
+    }
+
+    const pathMatch = fuzzyMatch(query, note.relativePath);
+    if (pathMatch) {
+      const score = pathMatch.score * PATH_WEIGHT;
+      if (!best || score > best.score) {
+        best = { note, score, matchType: 'path', excerpt: note.folder || 'Root' };
+      }
+    }
+
+    return best;
   }
 
   private async getNoteContent(note: NoteItem): Promise<string> {

@@ -5,6 +5,7 @@ import * as path from 'path';
 import { Uri, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
 import { MetadataService } from '../../src/services/metadata-service';
+import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 import { NotesTreeProvider } from '../../src/views/notes-tree-provider';
 import { NoteTreeItem, SectionId } from '../../src/models/tree-item';
@@ -12,6 +13,7 @@ import { NoteTreeItem, SectionId } from '../../src/models/tree-item';
 describe('NotesTreeProvider', () => {
   let tempRoot: string;
   let workspaceDir: string;
+  let vaultDir: string;
   let service: NoteService;
   let metadata: MetadataService;
   let provider: NotesTreeProvider;
@@ -28,14 +30,15 @@ describe('NotesTreeProvider', () => {
   beforeEach(() => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sidenote-tree-'));
     workspaceDir = path.join(tempRoot, 'workspace');
+    vaultDir = path.join(tempRoot, 'vault');
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     testConfiguration.clear();
-    testConfiguration.set('globalNotesPath', path.join(tempRoot, 'global'));
+    testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
     metadata = new MetadataService(new MockMemento(), new MockMemento());
-    service = new NoteService(metadata);
+    service = new NoteService(metadata, new ProjectRegistry(new MockMemento()));
     provider = new NotesTreeProvider(service, metadata);
   });
 
