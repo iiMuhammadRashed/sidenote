@@ -14,6 +14,13 @@ export class NoteLinkProvider implements vscode.DocumentLinkProvider {
     }
 
     const text = document.getText();
+    // VS Code re-runs link providers as the document changes, and this fires for every
+    // Markdown file, not just notes. Bail before touching the vault when the document
+    // has no wiki link syntax at all, which is the overwhelmingly common case.
+    if (!text.includes('[[')) {
+      return [];
+    }
+
     const links: vscode.DocumentLink[] = [];
     const notes = await this.noteService.getAllNotes();
 

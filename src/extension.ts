@@ -51,15 +51,28 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
-  // Anything touching the notes folders invalidates every layer of cache at once.
+  const reload = (): void => {
+    noteService.invalidate();
+    searchService.clearCache();
+    treeProvider.refresh();
+  };
+
+  // Anything touching the notes folders invalidates every layer of cache at once —
+  // except the Quick Note panel's own saves, which would otherwise make every
+  // keystroke re-scan the vault and repaint the panel the user is typing into.
   context.subscriptions.push(
-    watcherService.onDidChangeNotes(() => {
-      noteService.invalidate();
-      searchService.clearCache();
-      treeProvider.refresh();
-      void quickNote.refresh();
+    watcherService.onDidChangeNotes(async (uris) => {
+      const external = await Promise.all(uris.map(async (uri) => !(await quickNote.isOwnWrite(uri))));
+      if (!external.some(Boolean)) {
+        return;
+      }
+      reload();
+      await quickNote.refresh();
     })
   );
+
+  // A brand-new quick note still has to appear in the tree.
+  context.subscriptions.push(quickNote.onDidCreateNote(reload));
 
   const statusBar = new QuickNoteStatusBarItem();
   context.subscriptions.push(statusBar);
@@ -86,9 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       statusBar.sync();
       watcherService.setupWatchers();
-      noteService.invalidate();
-      searchService.clearCache();
-      treeProvider.refresh();
+      reload();
       void quickNote.refresh();
     })
   );
@@ -97,9 +108,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       watcherService.setupWatchers();
-      noteService.invalidate();
-      searchService.clearCache();
-      treeProvider.refresh();
+      reload();
+      void quickNote.refresh();
     })
   );
 }

@@ -20,6 +20,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   matches rank above scattered ones. Content hits now open the note on the matched
   line rather than at the top of the file.
 
+### Fixed
+
+- **Typing in the Quick Note panel no longer eats characters.** Each save came back
+  through the file watcher and repainted the panel with disk content that was a
+  save-cycle old, discarding anything typed in the meantime.
+- **High CPU and lag while typing**, worst right after a `#`. Every save re-scanned the
+  whole vault, rebuilt the tag index and re-rendered the tree. The panel's own saves are
+  now recognised by content and skipped, so only genuinely external edits reload anything.
+- The vault is watched once instead of twice. Project and global notes both live inside
+  it, so the previous per-root watchers overlapped on a home-directory subtree.
+- Wiki-link detection no longer reads every note on each keystroke in an unrelated
+  Markdown file; a document with no `[[` returns immediately.
+
 ### Added
 
 - **Quick Note panel**: a Markdown scratchpad rendered directly in the sidebar, with a

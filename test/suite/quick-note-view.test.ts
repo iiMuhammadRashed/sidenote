@@ -186,6 +186,82 @@ describe('QuickNoteViewProvider', () => {
     assert.strictEqual(typeof state.html, 'string');
   });
 
+  describe('does not fight the person typing', () => {
+    it('ignores a refresh while an edit is still unsaved', async () => {
+      view.send({ type: 'ready' });
+      await waitForState(view);
+      view.send({ type: 'edit', text: 'first' });
+      await provider.flush();
+
+      // Mid-word: a save is pending, so disk content is a cycle behind.
+      view.send({ type: 'edit', text: 'first and second' });
+      const postedBefore = view.posted.length;
+      await provider.refresh();
+
+      assert.strictEqual(view.posted.length, postedBefore, 'repainting here would eat keystrokes');
+      await provider.flush();
+      assert.strictEqual(fs.readFileSync(quickNotePath(), 'utf8'), 'first and second');
+    });
+
+    it('repaints once the edit has landed', async () => {
+      view.send({ type: 'ready' });
+      await waitForState(view);
+      view.send({ type: 'edit', text: 'saved' });
+      await provider.flush();
+
+      const postedBefore = view.posted.length;
+      await provider.refresh();
+
+      assert.ok(view.posted.length > postedBefore);
+    });
+
+    it('recognises its own save so it does not trigger a rescan', async () => {
+      view.send({ type: 'ready' });
+      await waitForState(view);
+      view.send({ type: 'edit', text: '# mine' });
+      await provider.flush();
+
+      assert.strictEqual(await provider.isOwnWrite(Uri.file(quickNotePath()) as never), true);
+    });
+
+    it('treats an edit made outside the panel as external', async () => {
+      view.send({ type: 'ready' });
+      await waitForState(view);
+      view.send({ type: 'edit', text: '# mine' });
+      await provider.flush();
+
+      fs.writeFileSync(quickNotePath(), '# edited in a tab');
+
+      assert.strictEqual(await provider.isOwnWrite(Uri.file(quickNotePath()) as never), false);
+    });
+
+    it('treats a different note as external', async () => {
+      view.send({ type: 'ready' });
+      await waitForState(view);
+      view.send({ type: 'edit', text: '# mine' });
+      await provider.flush();
+
+      const other = path.join(projectRoot(), 'Other.md');
+      fs.writeFileSync(other, '# mine');
+
+      assert.strictEqual(await provider.isOwnWrite(Uri.file(other) as never), false);
+    });
+
+    it('announces the note becoming a real file exactly once', async () => {
+      let creations = 0;
+      provider.onDidCreateNote(() => { creations++; });
+
+      view.send({ type: 'ready' });
+      await waitForState(view);
+      view.send({ type: 'edit', text: 'one' });
+      await provider.flush();
+      view.send({ type: 'edit', text: 'one two' });
+      await provider.flush();
+
+      assert.strictEqual(creations, 1);
+    });
+  });
+
   it('escapes the note when the built-in Markdown renderer is unavailable', async () => {
     view.send({ type: 'ready' });
     await waitForState(view);

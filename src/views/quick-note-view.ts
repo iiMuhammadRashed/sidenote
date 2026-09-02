@@ -28,6 +28,10 @@ type InboundMessage =
 export class QuickNoteViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'sidenote.quickNote';
 
+  private readonly onDidCreateNoteEmitter = new vscode.EventEmitter<void>();
+  /** Fires the first time a save brings the note file into existence. */
+  public readonly onDidCreateNote: vscode.Event<void> = this.onDidCreateNoteEmitter.event;
+
   private view?: vscode.WebviewView;
   private saveTimer?: NodeJS.Timeout;
   private pendingText?: string;
@@ -96,10 +100,36 @@ export class QuickNoteViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  /** Reloads from disk and repaints. Called on scope change and on external file edits. */
+  /**
+   * Reloads from disk and repaints, for external edits to the note.
+   *
+   * Skipped while an edit is still in flight: the panel would otherwise paint
+   * content that is a save-cycle old over what the user is currently typing,
+   * silently eating the characters entered in the meantime.
+   */
   public async refresh(): Promise<void> {
-    if (this.view) {
+    if (this.view && !this.hasUnsavedEdit) {
       await this.pushStateToWebview();
+    }
+  }
+
+  private get hasUnsavedEdit(): boolean {
+    return this.pendingText !== undefined || this.saveTimer !== undefined;
+  }
+
+  /**
+   * True when this file change is the panel's own save coming back through the
+   * watcher. Comparing content rather than remembering paths for a while means
+   * there is no window in which a genuine external edit gets dropped.
+   */
+  public async isOwnWrite(uri: vscode.Uri): Promise<boolean> {
+    if (this.lastWrittenText === undefined || uri.fsPath !== this.noteUri.fsPath) {
+      return false;
+    }
+    try {
+      return (await this.noteService.readNoteContent(uri)) === this.lastWrittenText;
+    } catch {
+      return false;
     }
   }
 
@@ -163,6 +193,13 @@ export class QuickNoteViewProvider implements vscode.WebviewViewProvider {
     }
 
     const uri = this.noteUri;
+    let existed = true;
+    try {
+      await vscode.workspace.fs.stat(uri);
+    } catch {
+      existed = false;
+    }
+
     try {
       // Creating the parent here is what makes the notes root appear on first
       // keystroke rather than at activation.
@@ -170,6 +207,9 @@ export class QuickNoteViewProvider implements vscode.WebviewViewProvider {
       await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
       this.lastWrittenText = text;
       this.noteService.invalidate();
+      if (!existed) {
+        this.onDidCreateNoteEmitter.fire();
+      }
     } catch (error: unknown) {
       const detail = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`Sidenote: could not save the quick note — ${detail}`);

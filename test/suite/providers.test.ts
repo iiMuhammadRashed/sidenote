@@ -79,6 +79,27 @@ describe('Markdown providers', () => {
       assert.deepStrictEqual(links, []);
     });
 
+    it('does not touch the vault for a document with no wiki links', async () => {
+      await service.createNote({ title: 'Design Doc', scope: 'workspace' });
+      service.invalidate();
+
+      let scans = 0;
+      const counted = Object.assign(Object.create(Object.getPrototypeOf(service)), service, {
+        getAllNotes: () => {
+          scans++;
+          return service.getAllNotes();
+        },
+      }) as NoteService;
+
+      const links = await new NoteLinkProvider(counted).provideDocumentLinks(
+        documentWith('# A perfectly ordinary README\n\nNo links here.'),
+        noToken
+      );
+
+      assert.deepStrictEqual(links, []);
+      assert.strictEqual(scans, 0, 'reading every note on each keystroke is what made typing lag');
+    });
+
     it('ignores documents that are not Markdown', async () => {
       await service.createNote({ title: 'Design Doc', scope: 'workspace' });
       service.invalidate();
