@@ -3,7 +3,6 @@ import { COMMANDS } from '../constants/commands';
 import { NoteItem, NoteScope } from '../models/note';
 import { NoteTreeItem } from '../models/tree-item';
 import { NoteService } from '../services/note-service';
-import { MetadataService } from '../services/metadata-service';
 import { NotesTreeProvider } from '../views/notes-tree-provider';
 import { getConfiguration } from '../constants/config';
 import { stripMarkdownExtension } from '../utils/path-utils';
@@ -17,7 +16,6 @@ type CommandTarget = NoteItem | NoteTreeItem | { scope?: NoteScope; folder?: str
 export function registerNoteCommands(
   context: vscode.ExtensionContext,
   noteService: NoteService,
-  metadataService: MetadataService,
   treeProvider: NotesTreeProvider
 ): void {
   const openNote = async (note: NoteItem, beside = false): Promise<void> => {
@@ -26,7 +24,6 @@ export function registerNoteCommands(
       preview: false,
       ...(beside ? { viewColumn: vscode.ViewColumn.Beside } : {}),
     });
-    await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
     treeProvider.refresh();
   };
 
@@ -157,37 +154,8 @@ export function registerNoteCommands(
     warnIfPermanent(outcome.permanent, `"${note.title}"`);
   });
 
-  register(COMMANDS.DUPLICATE, async (target) => {
-    const note = toNote(target);
-    if (!note) {
-      return;
-    }
-    const copy = await noteService.duplicateNote(note);
-    treeProvider.refresh();
-    await openNote(copy);
-  });
 
-  register(COMMANDS.TOGGLE_FAVORITE, async (target) => {
-    const note = toNote(target);
-    if (!note) {
-      return;
-    }
-    const isFavorite = await metadataService.toggleFavorite(note.id);
-    treeProvider.refresh();
-    setStatusMessage(
-      isFavorite ? `Added "${note.title}" to Favorites` : `Removed "${note.title}" from Favorites`
-    );
-  });
 
-  register(COMMANDS.TOGGLE_ARCHIVE, async (target) => {
-    const note = toNote(target);
-    if (!note) {
-      return;
-    }
-    const isArchived = await metadataService.toggleArchived(note.id);
-    treeProvider.refresh();
-    setStatusMessage(isArchived ? `Archived "${note.title}"` : `Restored "${note.title}"`);
-  });
 
   register(COMMANDS.COPY_WIKI_LINK, async (target) => {
     const note = toNote(target);
@@ -199,32 +167,7 @@ export function registerNoteCommands(
     setStatusMessage(`Copied ${link}`);
   });
 
-  register(COMMANDS.COPY_PATH, async (target) => {
-    const note = toNote(target);
-    const relativePath = note?.relativePath ?? toFolder(target)?.folderPath;
-    if (!relativePath) {
-      return;
-    }
-    await vscode.env.clipboard.writeText(relativePath);
-    setStatusMessage(`Copied ${relativePath}`);
-  });
 
-  register(COMMANDS.REVEAL_IN_FILE_EXPLORER, async (target) => {
-    const note = toNote(target);
-    if (note) {
-      await vscode.commands.executeCommand('revealFileInOS', note.uri);
-      return;
-    }
-
-    const folder = toFolder(target);
-    if (folder) {
-      const root = noteService.getRoot(folder.scope);
-      await vscode.commands.executeCommand(
-        'revealFileInOS',
-        vscode.Uri.joinPath(root, folder.folderPath)
-      );
-    }
-  });
 
   register(COMMANDS.OPEN_DAILY_NOTE, async () => {
     const note = await noteService.getOrCreateDailyNote();

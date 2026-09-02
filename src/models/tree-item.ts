@@ -6,13 +6,7 @@ import { COMMANDS } from '../constants/commands';
 export type TreeItemType = 'section' | 'folder' | 'note' | 'tag' | 'filterBanner' | 'empty';
 
 /** The fixed top-level groupings shown at the root of the tree. */
-export type SectionId =
-  | 'favorites'
-  | 'recent'
-  | 'workspace'
-  | 'global'
-  | 'tags'
-  | 'archive';
+export type SectionId = 'workspace' | 'global' | 'tags';
 
 export class NoteTreeItem extends vscode.TreeItem {
   public readonly itemType: TreeItemType;
@@ -65,31 +59,21 @@ export class NoteTreeItem extends vscode.TreeItem {
   }
 
   static createNoteItem(note: NoteItem, showScopeBadge = false): NoteTreeItem {
-    const icon = note.isFavorite
-      ? new vscode.ThemeIcon('pinned', new vscode.ThemeColor('charts.yellow'))
-      : note.isArchived
-      ? new vscode.ThemeIcon('archive')
-      : new vscode.ThemeIcon('markdown');
+    const icon = new vscode.ThemeIcon('markdown');
 
     const descParts: string[] = [];
     if (showScopeBadge) {
-      descParts.push(note.scope === 'workspace' ? '[WS]' : '[Global]');
+      descParts.push(note.scope === 'workspace' ? 'Project' : 'Global');
     }
     descParts.push(getRelativeTimeString(note.mtime));
 
     const tooltip = new vscode.MarkdownString();
     tooltip.appendMarkdown(`### 📝 ${note.title}\n\n`);
     tooltip.appendMarkdown(`- **File:** \`${note.relativePath}\`\n`);
-    tooltip.appendMarkdown(`- **Scope:** ${note.scope === 'workspace' ? 'Workspace' : 'Global'}\n`);
+    tooltip.appendMarkdown(`- **Where:** ${note.scope === 'workspace' ? 'This project' : 'Global'}\n`);
     tooltip.appendMarkdown(`- **Modified:** ${new Date(note.mtime).toLocaleString()}\n`);
     if (note.tags.length > 0) {
       tooltip.appendMarkdown(`- **Tags:** ${note.tags.map((t) => '`#' + t + '`').join(' ')}\n`);
-    }
-    if (note.isFavorite) {
-      tooltip.appendMarkdown(`- ⭐ **Pinned / Favorite**\n`);
-    }
-    if (note.isArchived) {
-      tooltip.appendMarkdown(`- 📦 **Archived**\n`);
     }
 
     return new NoteTreeItem(note.title, vscode.TreeItemCollapsibleState.None, {

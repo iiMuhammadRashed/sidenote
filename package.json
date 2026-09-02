@@ -72,7 +72,7 @@
         },
         {
           "id": "sidenote.explorer",
-          "name": "All Notes",
+          "name": "Notes",
           "type": "tree"
         }
       ]
@@ -114,24 +114,6 @@
         "icon": "$(trash)"
       },
       {
-        "command": "sidenote.duplicate",
-        "category": "Sidenote",
-        "title": "Duplicate Note",
-        "icon": "$(copy)"
-      },
-      {
-        "command": "sidenote.toggleFavorite",
-        "category": "Sidenote",
-        "title": "Toggle Favorite",
-        "icon": "$(star-empty)"
-      },
-      {
-        "command": "sidenote.toggleArchive",
-        "category": "Sidenote",
-        "title": "Toggle Archive",
-        "icon": "$(archive)"
-      },
-      {
         "command": "sidenote.search",
         "category": "Sidenote",
         "title": "Search Notes",
@@ -150,25 +132,10 @@
         "icon": "$(clear-all)"
       },
       {
-        "command": "sidenote.move",
-        "category": "Sidenote",
-        "title": "Move Note to Folder..."
-      },
-      {
         "command": "sidenote.copyWikiLink",
         "category": "Sidenote",
         "title": "Copy Wiki Link",
         "icon": "$(link)"
-      },
-      {
-        "command": "sidenote.copyPath",
-        "category": "Sidenote",
-        "title": "Copy Relative Path"
-      },
-      {
-        "command": "sidenote.revealInFileExplorer",
-        "category": "Sidenote",
-        "title": "Reveal in File Explorer"
       },
       {
         "command": "sidenote.openDailyNote",
@@ -245,11 +212,6 @@
           "when": "view == sidenote.explorer && viewItem == note"
         },
         {
-          "command": "sidenote.toggleFavorite",
-          "group": "inline@2",
-          "when": "view == sidenote.explorer && viewItem == note"
-        },
-        {
           "command": "sidenote.newNote",
           "group": "inline@1",
           "when": "view == sidenote.explorer && viewItem == folder"
@@ -260,34 +222,9 @@
           "when": "view == sidenote.explorer && (viewItem == note || viewItem == folder)"
         },
         {
-          "command": "sidenote.duplicate",
-          "group": "2_modify@2",
-          "when": "view == sidenote.explorer && viewItem == note"
-        },
-        {
-          "command": "sidenote.move",
-          "group": "2_modify@3",
-          "when": "view == sidenote.explorer && viewItem == note"
-        },
-        {
-          "command": "sidenote.toggleArchive",
-          "group": "2_modify@4",
-          "when": "view == sidenote.explorer && viewItem == note"
-        },
-        {
           "command": "sidenote.copyWikiLink",
           "group": "3_copy@1",
           "when": "view == sidenote.explorer && viewItem == note"
-        },
-        {
-          "command": "sidenote.copyPath",
-          "group": "3_copy@2",
-          "when": "view == sidenote.explorer && (viewItem == note || viewItem == folder)"
-        },
-        {
-          "command": "sidenote.revealInFileExplorer",
-          "group": "4_system@1",
-          "when": "view == sidenote.explorer && (viewItem == note || viewItem == folder)"
         },
         {
           "command": "sidenote.delete",
@@ -372,32 +309,10 @@
           "default": "modifiedDesc",
           "description": "Sort order for notes within folders and sections."
         },
-        "sidenote.showRecent": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the Recent section in the sidebar."
-        },
-        "sidenote.recentLimit": {
-          "type": "integer",
-          "default": 7,
-          "minimum": 1,
-          "maximum": 30,
-          "description": "Maximum number of recent notes to remember and show."
-        },
-        "sidenote.showFavorites": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the Favorites section in the sidebar."
-        },
         "sidenote.showTags": {
           "type": "boolean",
           "default": true,
           "description": "Show the Tags section in the sidebar."
-        },
-        "sidenote.showArchive": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show the Archive section in the sidebar."
         },
         "sidenote.showStatusBarItem": {
           "type": "boolean",
@@ -430,7 +345,14 @@
           "markdownDescription": "Date pattern for templates and daily note filenames. Supports `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`."
         }
       }
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "sidenote.explorer",
+        "when": "sidenote.isEmpty",
+        "contents": "Notes you write here are kept outside your project, so they are never committed by accident.\n\n[New Note](command:sidenote.newNote)\n[Today's Daily Note](command:sidenote.openDailyNote)\n\nOr just start typing in the Quick Note box above."
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",

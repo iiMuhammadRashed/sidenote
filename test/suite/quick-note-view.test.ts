@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { Uri, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
-import { MetadataService } from '../../src/services/metadata-service';
 import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 import { QuickNoteViewProvider } from '../../src/views/quick-note-view';
@@ -81,7 +80,7 @@ describe('QuickNoteViewProvider', () => {
     testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
-    noteService = new NoteService(new MetadataService(new MockMemento(), new MockMemento()), new ProjectRegistry(new MockMemento()));
+    noteService = new NoteService(new ProjectRegistry(new MockMemento()));
     provider = new QuickNoteViewProvider(noteService, new MockMemento(), Uri.file(tempRoot) as never);
     view = new FakeWebviewView();
     provider.resolveWebviewView(view as never);

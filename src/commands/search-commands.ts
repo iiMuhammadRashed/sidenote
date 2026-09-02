@@ -2,16 +2,14 @@ import * as vscode from 'vscode';
 import { COMMANDS } from '../constants/commands';
 import { NoteService } from '../services/note-service';
 import { SearchService } from '../services/search-service';
-import { MetadataService } from '../services/metadata-service';
 import { TagService } from '../services/tag-service';
 import { NotesTreeProvider } from '../views/notes-tree-provider';
 import { NoteItem } from '../models/note';
-import { getConfiguration } from '../constants/config';
 
 /** Keystroke settle time before a search runs, so typing stays responsive on large vaults. */
 const SEARCH_DEBOUNCE_MS = 80;
 
-type ItemAction = 'openToSide' | 'toggleFavorite';
+type ItemAction = 'openToSide';
 
 interface NoteQuickPickButton extends vscode.QuickInputButton {
   action: ItemAction;
@@ -28,7 +26,6 @@ export function registerSearchCommands(
   context: vscode.ExtensionContext,
   noteService: NoteService,
   searchService: SearchService,
-  metadataService: MetadataService,
   treeProvider: NotesTreeProvider
 ): void {
   const openNote = async (note: NoteItem, beside: boolean, line?: number): Promise<void> => {
@@ -40,13 +37,12 @@ export function registerSearchCommands(
       ...(target ? { selection: target } : {}),
       ...(beside ? { viewColumn: vscode.ViewColumn.Beside } : {}),
     });
-    await metadataService.recordRecent(note.id, getConfiguration().recentLimit);
     treeProvider.refresh();
   };
 
   context.subscriptions.push(
     vscode.commands.registerCommand(COMMANDS.SEARCH, async () => {
-      let candidates = (await noteService.getAllNotes()).filter((note) => !note.isArchived);
+      const candidates = await noteService.getAllNotes();
 
       const quickPick = vscode.window.createQuickPick<NoteQuickPickItem>();
       quickPick.placeholder = 'Search notes by title, folder, tag or full text...';
@@ -102,14 +98,7 @@ export function registerSearchCommands(
         if (toAction(event.button) === 'openToSide') {
           quickPick.hide();
           await openNote(event.item.note, true, event.item.line);
-          return;
         }
-
-        await metadataService.toggleFavorite(event.item.note.id);
-        noteService.invalidate();
-        treeProvider.refresh();
-        candidates = (await noteService.getAllNotes()).filter((note) => !note.isArchived);
-        quickPick.items = toItems(noteService.sortNotes(candidates));
       });
 
       quickPick.onDidHide(() => {
@@ -129,7 +118,7 @@ export function registerSearchCommands(
       }
 
       const notes = await noteService.getAllNotes();
-      const tagCounts = TagService.getTagCounts(notes.filter((note) => !note.isArchived));
+      const tagCounts = TagService.getTagCounts(notes);
 
       if (tagCounts.length === 0) {
         vscode.window.showInformationMessage(
@@ -171,7 +160,7 @@ function toItems(notes: readonly NoteItem[]): NoteQuickPickItem[] {
 
 function toItem(note: NoteItem, excerpt?: string, line?: number): NoteQuickPickItem {
   return {
-    label: `${note.isFavorite ? '$(star-full) ' : '$(markdown) '}${note.title}`,
+    label: `$(markdown) ${note.title}`,
     description: describeNote(note),
     detail: line === undefined ? excerpt : `$(arrow-right) line ${line}: ${excerpt ?? ''}`.trim(),
     // The quick pick filters by label; our results are already scored and may match on
@@ -181,17 +170,13 @@ function toItem(note: NoteItem, excerpt?: string, line?: number): NoteQuickPickI
     line,
     buttons: [
       { action: 'openToSide', iconPath: new vscode.ThemeIcon('split-horizontal'), tooltip: 'Open to the Side' },
-      {
-        action: 'toggleFavorite',
-        iconPath: new vscode.ThemeIcon(note.isFavorite ? 'star-full' : 'star-empty'),
-        tooltip: note.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
-      },
     ],
   };
 }
 
 function describeNote(note: NoteItem): string {
-  const parts = [note.scope === 'workspace' ? 'Workspace' : 'Global', note.relativePath];
+  // The flat result list has no section headers, so each row states where it lives.
+  const parts = [note.scope === 'workspace' ? 'Project' : 'Global', note.relativePath];
   if (note.tags.length > 0) {
     parts.push(note.tags.map((tag) => `#${tag}`).join(' '));
   }

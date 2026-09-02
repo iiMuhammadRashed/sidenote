@@ -20,6 +20,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   matches rank above scattered ones. Content hits now open the note on the matched
   line rather than at the top of the file.
 
+### Changed
+
+- **The sidebar is much simpler.** Six tree sections become three: This Project,
+  Global and Tags. Favorites, Recent and Archive are gone — with notes already sorted
+  newest-first, they mostly re-listed the same notes. In a four-note vault the tree
+  went from nine rows to six, and no note appears twice.
+- **A real welcome screen on first run**, instead of two empty folders each offering
+  the same "create a note" prompt.
+- **One vocabulary everywhere.** The panel, the tree and search results all say
+  "This Project" and "Global"; the `[WS]` badge is gone.
+- 20 commands become 14, and 16 settings become 12.
+- Favorites, archive and recent history are no longer stored at all. Sidenote now keeps
+  nothing about your notes beyond the files themselves and a small map of which vault
+  folder belongs to which project.
+
 ### Fixed
 
 - **Typing in the Quick Note panel no longer eats characters.** Each save came back

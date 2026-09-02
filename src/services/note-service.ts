@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { NoteItem, NoteScope } from '../models/note';
-import { MetadataService } from './metadata-service';
 import { ProjectRegistry } from './project-registry';
 import { TagService } from './tag-service';
 import {
@@ -42,10 +41,7 @@ export class NoteService {
   /** In-flight or completed scan of the whole vault; cleared by {@link invalidate}. */
   private pendingScan?: Promise<NoteItem[]>;
 
-  constructor(
-    private readonly metadataService: MetadataService,
-    private readonly projects: ProjectRegistry
-  ) {}
+  constructor(private readonly projects: ProjectRegistry) {}
 
   /**
    * Drops the cached note list. Parsed file contents survive, since they are
@@ -250,8 +246,6 @@ export class NoteService {
       mtime: stat.mtime,
       size: stat.size,
       tags: parsed.tags,
-      isFavorite: this.metadataService.isFavorite(id),
-      isArchived: this.metadataService.isArchived(id),
     };
   }
 
@@ -324,7 +318,6 @@ export class NoteService {
     const id = `${scope}:${relativePath}`;
     const stat = await vscode.workspace.fs.stat(fileUri);
 
-    await this.metadataService.recordRecent(id, config.recentLimit);
 
     return {
       id,
@@ -338,8 +331,6 @@ export class NoteService {
       mtime: stat.mtime,
       size: stat.size,
       tags: TagService.extractTags(content),
-      isFavorite: false,
-      isArchived: false,
     };
   }
 
@@ -387,7 +378,6 @@ export class NoteService {
     const relativePath = toRelativePath(root.fsPath, targetUri.fsPath);
     const id = `${note.scope}:${relativePath}`;
 
-    await this.metadataService.updateNoteId(note.id, id);
 
     const stat = await vscode.workspace.fs.stat(targetUri);
     const content = await this.readNoteContent(targetUri);
@@ -430,7 +420,6 @@ export class NoteService {
     this.forgetFilesUnder(sourceUri);
     this.invalidate();
 
-    await this.metadataService.updateFolderId(`${scope}:${folderPath}`, `${scope}:${targetPath}`);
     return targetPath;
   }
 
@@ -443,7 +432,6 @@ export class NoteService {
     if (outcome.deleted) {
       this.forgetFile(note.uri);
       this.invalidate();
-      await this.metadataService.removeNote(note.id);
     }
     return outcome;
   }
@@ -458,7 +446,6 @@ export class NoteService {
     if (outcome.deleted) {
       this.forgetFilesUnder(folderUri);
       this.invalidate();
-      await this.metadataService.removeNotesUnder(`${scope}:${folderPath}`);
     }
     return outcome;
   }
@@ -505,7 +492,6 @@ export class NoteService {
 
     const relativePath = toRelativePath(root.fsPath, targetUri.fsPath);
     const id = `${scope}:${relativePath}`;
-    await this.metadataService.updateNoteId(note.id, id);
 
     return { ...note, id, uri: targetUri, relativePath, folder, scope };
   }
@@ -532,7 +518,6 @@ export class NoteService {
     );
 
     if (existing) {
-      await this.metadataService.recordRecent(existing.id, config.recentLimit);
       return existing;
     }
 

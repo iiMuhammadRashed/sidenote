@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { Uri, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
-import { MetadataService } from '../../src/services/metadata-service';
 import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 
@@ -13,7 +12,6 @@ describe('NoteService', () => {
   let workspaceDir: string;
   let vaultDir: string;
   let service: NoteService;
-  let metadata: MetadataService;
 
   /** Where this project's notes land: inside the vault, never inside the project. */
   const notesRoot = (): string => path.join(vaultDir, 'projects', path.basename(workspaceDir));
@@ -31,8 +29,7 @@ describe('NoteService', () => {
     testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
-    metadata = new MetadataService(new MockMemento(), new MockMemento());
-    service = new NoteService(metadata, new ProjectRegistry(new MockMemento()));
+    service = new NoteService(new ProjectRegistry(new MockMemento()));
   });
 
   afterEach(() => {
@@ -211,44 +208,39 @@ describe('NoteService', () => {
   });
 
   describe('renameNote', () => {
-    it('renames the file and carries favorite state to the new id', async () => {
+    it('renames the file on disk', async () => {
       const note = await service.createNote({ title: 'Old Name', scope: 'workspace' });
-      await metadata.toggleFavorite(note.id);
 
       const renamed = await service.renameNote(note, 'New Name');
 
       assert.strictEqual(renamed.filename, 'New Name.md');
       assert.strictEqual(fs.existsSync(note.uri.fsPath), false);
-      assert.strictEqual(metadata.isFavorite(renamed.id), true);
-      assert.strictEqual(metadata.isFavorite(note.id), false);
+      assert.strictEqual(fs.existsSync(renamed.uri.fsPath), true);
     });
   });
 
   describe('renameFolder', () => {
-    it('moves the folder and remaps the ids of the notes inside it', async () => {
-      const note = await service.createNote({ title: 'Task', folder: 'Work', scope: 'workspace' });
-      await metadata.toggleFavorite(note.id);
+    it('moves the folder and the notes inside it', async () => {
+      await service.createNote({ title: 'Task', folder: 'Work', scope: 'workspace' });
 
       const newPath = await service.renameFolder('Work', 'Projects', 'workspace');
 
       assert.strictEqual(newPath, 'Projects');
       assert.strictEqual(fs.existsSync(path.join(notesRoot(), 'Projects', 'Task.md')), true);
-      assert.strictEqual(metadata.isFavorite('workspace:Projects/Task.md'), true);
-      assert.strictEqual(metadata.isFavorite('workspace:Work/Task.md'), false);
+      assert.strictEqual(fs.existsSync(path.join(notesRoot(), 'Work')), false);
     });
   });
 
   describe('moveNote', () => {
-    it('moves a note between scopes and updates its id', async () => {
+    it('moves a note from this project to the global notes', async () => {
       const note = await service.createNote({ title: 'Portable', scope: 'workspace' });
-      await metadata.recordRecent(note.id);
 
       const moved = await service.moveNote(note, 'Inbox', 'global');
 
       assert.strictEqual(moved.scope, 'global');
       assert.strictEqual(moved.id, 'global:Inbox/Portable.md');
       assert.strictEqual(fs.existsSync(path.join(globalRoot(), 'Inbox', 'Portable.md')), true);
-      assert.deepStrictEqual(metadata.getRecentIds(), ['global:Inbox/Portable.md']);
+      assert.strictEqual(fs.existsSync(note.uri.fsPath), false);
     });
 
     it('sanitizes a traversal attempt in the destination folder', async () => {
@@ -263,23 +255,19 @@ describe('NoteService', () => {
   describe('delete', () => {
     it('reports a permanent delete when the trash is unavailable', async () => {
       const note = await service.createNote({ title: 'Doomed', scope: 'workspace' });
-      await metadata.toggleFavorite(note.id);
 
       const outcome = await service.deleteNote(note);
 
       assert.deepStrictEqual(outcome, { deleted: true, permanent: true });
       assert.strictEqual(fs.existsSync(note.uri.fsPath), false);
-      assert.strictEqual(metadata.isFavorite(note.id), false);
     });
 
-    it('deletes a folder and forgets the stored state of every note inside', async () => {
-      const note = await service.createNote({ title: 'Inside', folder: 'Temp', scope: 'workspace' });
-      await metadata.toggleFavorite(note.id);
+    it('deletes a folder and everything inside it', async () => {
+      await service.createNote({ title: 'Inside', folder: 'Temp', scope: 'workspace' });
 
       await service.deleteFolder('Temp', 'workspace');
 
       assert.strictEqual(fs.existsSync(path.join(notesRoot(), 'Temp')), false);
-      assert.strictEqual(metadata.isFavorite(note.id), false);
     });
 
     it('refuses to delete a folder outside the notes root', async () => {

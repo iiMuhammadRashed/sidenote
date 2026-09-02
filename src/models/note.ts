@@ -25,10 +25,6 @@ export interface NoteItem {
   size: number;
   /** Extracted tags (e.g. ['work', 'todo']) */
   tags: string[];
-  /** Is favorite / pinned */
-  isFavorite: boolean;
-  /** Is archived */
-  isArchived: boolean;
   /** Search excerpt preview */
   excerpt?: string;
 }

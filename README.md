@@ -26,13 +26,12 @@ Most note-taking extensions either hide your notes in a database or drop you int
 | | |
 |---|---|
 | **Quick Note panel** | A Markdown scratchpad in the sidebar with a Write/Preview toggle, auto-save, and one note per vault |
-| **Sidebar tree** | Favorites, Recent, Workspace, Global, Tags and Archive sections, with real folders underneath |
+| **Sidebar tree** | This Project, Global and Tags — with your real folders underneath |
 | **Full-text search** | Ranked across titles, folders, tags and note bodies, with matching-line previews |
 | **Tags** | Picked up from `#hashtags` and YAML `tags:` frontmatter; click a tag to filter the tree |
 | **Wiki links** | `[[Note Title]]` becomes a clickable link, with autocomplete as you type `[[` |
 | **Daily notes** | One keystroke opens today's note, created from your template if it does not exist yet |
-| **Favorites & archive** | Pin what you use; archive what you don't, without deleting it |
-| **Drag and drop** | Move notes between folders — or between the workspace and global vaults |
+| **Drag and drop** | Move notes between folders, or between this project and your global notes |
 | **Templates** | `${title}`, `${date}`, `${time}` and `${datetime}` in new-note and daily-note templates |
 
 ## Getting started
@@ -67,15 +66,9 @@ Every command is available from the Command Palette under the **Sidenote** categ
 | `Sidenote: Open Note` / `Open Note to the Side` | Open a note in the editor |
 | `Sidenote: Rename Note or Folder` | Rename, carrying favorites and history to the new name |
 | `Sidenote: Delete Note or Folder` | Delete via the system trash where available |
-| `Sidenote: Duplicate Note` | Copy a note alongside the original |
-| `Sidenote: Move Note to Folder...` | Move between folders and between vaults |
-| `Sidenote: Toggle Favorite` | Pin a note to the Favorites section |
-| `Sidenote: Toggle Archive` | Hide a note from the main tree without deleting it |
 | `Sidenote: Search Notes` | Ranked search over titles, folders, tags and content |
 | `Sidenote: Filter Notes by Tag` / `Clear Tag Filter` | Narrow the tree to one tag |
 | `Sidenote: Copy Wiki Link` | Copy `[[Note Title]]` to the clipboard |
-| `Sidenote: Copy Relative Path` | Copy a note or folder's path inside the vault |
-| `Sidenote: Reveal in File Explorer` | Show the file in your OS file manager |
 | `Sidenote: Open Today's Daily Note` | Open or create today's note |
 | `Sidenote: Open Markdown Preview to the Side` | Preview the current note |
 | `Sidenote: Refresh Notes` | Re-scan both vaults |
@@ -89,11 +82,7 @@ Every command is available from the Command Palette under the **Sidenote** categ
 | `sidenote.globalNotesPath` | `~/.sidenote` | Folder for notes shared across workspaces |
 | `sidenote.defaultScope` | `workspace` | Where new notes go when no folder is selected |
 | `sidenote.sortBy` | `modifiedDesc` | Sort order within folders and sections |
-| `sidenote.showRecent` | `true` | Show the Recent section |
-| `sidenote.recentLimit` | `7` | How many recent notes to remember |
-| `sidenote.showFavorites` | `true` | Show the Favorites section |
 | `sidenote.showTags` | `true` | Show the Tags section |
-| `sidenote.showArchive` | `false` | Show the Archive section |
 | `sidenote.showStatusBarItem` | `true` | Show the status bar New Note button |
 | `sidenote.confirmDelete` | `true` | Confirm before deleting |
 | `sidenote.defaultNoteTemplate` | `# ${title}\n\n` | Content for new notes |
@@ -140,7 +129,7 @@ your-project/
     └── Reading List.md
 ```
 
-Favorites, archive state and recent history are stored in VS Code's own state — workspace notes in workspace state, global notes in global state — so they never pollute your Markdown.
+Sidenote stores nothing about your notes beyond the files themselves, apart from a small map recording which vault folder belongs to which project.
 
 ## Requirements
 

@@ -71,8 +71,6 @@ Inline \`#alsoNotATag\` code snippet.
         mtime: 100,
         size: 50,
         tags: ['work', 'urgent'],
-        isFavorite: false,
-        isArchived: false,
       },
       {
         id: '2',
@@ -86,8 +84,6 @@ Inline \`#alsoNotATag\` code snippet.
         mtime: 100,
         size: 50,
         tags: ['work', 'ideas'],
-        isFavorite: false,
-        isArchived: false,
       },
     ];
 

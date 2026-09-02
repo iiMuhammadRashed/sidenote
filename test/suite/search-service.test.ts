@@ -18,8 +18,6 @@ describe('SearchService', () => {
       mtime: 100,
       size: 200,
       tags: ['system', 'backend'],
-      isFavorite: false,
-      isArchived: false,
     },
     {
       id: 'workspace:Meeting-2026-09-02.md',
@@ -33,8 +31,6 @@ describe('SearchService', () => {
       mtime: 200,
       size: 150,
       tags: ['meeting', 'team'],
-      isFavorite: true,
-      isArchived: false,
     },
     {
       id: 'global:Ideas.md',
@@ -48,8 +44,6 @@ describe('SearchService', () => {
       mtime: 300,
       size: 100,
       tags: ['brainstorm'],
-      isFavorite: false,
-      isArchived: false,
     },
   ];
 

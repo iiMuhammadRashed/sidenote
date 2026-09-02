@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { MetadataService } from './services/metadata-service';
 import { NoteService } from './services/note-service';
 import { ProjectRegistry } from './services/project-registry';
 import { SearchService } from './services/search-service';
@@ -11,7 +10,6 @@ import { NoteLinkProvider } from './providers/link-provider';
 import { NoteCompletionProvider } from './providers/completion-provider';
 import { registerNoteCommands } from './commands/note-commands';
 import { registerSearchCommands } from './commands/search-commands';
-import { registerOrganizationCommands } from './commands/organization-commands';
 import { COMMANDS } from './constants/commands';
 import { getConfiguration, CONFIG_SECTION } from './constants/config';
 
@@ -21,13 +19,12 @@ export const VIEW_ID = 'sidenote.explorer';
 const TAG_FILTER_CONTEXT_KEY = 'sidenote.hasTagFilter';
 
 export function activate(context: vscode.ExtensionContext): void {
-  const metadataService = new MetadataService(context.workspaceState, context.globalState);
-  const noteService = new NoteService(metadataService, new ProjectRegistry(context.globalState));
+  const noteService = new NoteService(new ProjectRegistry(context.globalState));
   const searchService = new SearchService(noteService);
   const watcherService = new WatcherService(noteService);
   context.subscriptions.push(watcherService);
 
-  const treeProvider = new NotesTreeProvider(noteService, metadataService);
+  const treeProvider = new NotesTreeProvider(noteService);
   context.subscriptions.push(
     vscode.window.createTreeView(VIEW_ID, {
       treeDataProvider: treeProvider,
@@ -88,9 +85,8 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
-  registerNoteCommands(context, noteService, metadataService, treeProvider);
-  registerSearchCommands(context, noteService, searchService, metadataService, treeProvider);
-  registerOrganizationCommands(context, noteService, treeProvider);
+  registerNoteCommands(context, noteService, treeProvider);
+  registerSearchCommands(context, noteService, searchService, treeProvider);
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {

@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { Uri, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
-import { MetadataService } from '../../src/services/metadata-service';
 import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 import { NotesTreeProvider } from '../../src/views/notes-tree-provider';
@@ -15,7 +14,6 @@ describe('NotesTreeProvider', () => {
   let workspaceDir: string;
   let vaultDir: string;
   let service: NoteService;
-  let metadata: MetadataService;
   let provider: NotesTreeProvider;
 
   const labelsOf = (items: readonly NoteTreeItem[]): string[] => items.map((item) => String(item.label));
@@ -37,9 +35,8 @@ describe('NotesTreeProvider', () => {
     testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
-    metadata = new MetadataService(new MockMemento(), new MockMemento());
-    service = new NoteService(metadata, new ProjectRegistry(new MockMemento()));
-    provider = new NotesTreeProvider(service, metadata);
+    service = new NoteService(new ProjectRegistry(new MockMemento()));
+    provider = new NotesTreeProvider(service);
   });
 
   afterEach(() => {
@@ -49,59 +46,50 @@ describe('NotesTreeProvider', () => {
   });
 
   describe('root sections', () => {
-    it('always offers both scope sections when a workspace is open', async () => {
-      const roots = await provider.getChildren();
-      assert.deepStrictEqual(labelsOf(roots), ['Workspace Notes', 'Global Notes']);
+    it('shows nothing at all on a fresh install, so the welcome view takes over', async () => {
+      assert.deepStrictEqual(await provider.getChildren(), []);
     });
 
-    it('omits the workspace section when no workspace is open', async () => {
+    it('offers exactly three sections once notes exist', async () => {
+      await service.createNote({ title: 'Tagged', scope: 'workspace', content: '# Tagged\n\n#work' });
+      service.invalidate();
+
+      assert.deepStrictEqual(labelsOf(await provider.getChildren()), ['This Project', 'Global', 'Tags']);
+    });
+
+    it('omits the project section when no project is open', async () => {
+      await service.createNote({ title: 'Anywhere', scope: 'global' });
       testState.workspaceFolders = undefined;
       service.invalidate();
 
-      const roots = await provider.getChildren();
-      assert.deepStrictEqual(labelsOf(roots), ['Global Notes']);
+      assert.deepStrictEqual(labelsOf(await provider.getChildren()), ['Global']);
     });
 
-    it('adds the Favorites section only once a note is favorited', async () => {
-      const note = await service.createNote({ title: 'Pinned', scope: 'workspace' });
-      assert.strictEqual((await provider.getChildren()).some((i) => i.sectionId === 'favorites'), false);
-
-      await metadata.toggleFavorite(note.id);
+    it('omits Tags until a note actually has one', async () => {
+      await service.createNote({ title: 'Plain', scope: 'workspace' });
       service.invalidate();
 
-      assert.deepStrictEqual(labelsOf(await section('favorites')), ['Pinned']);
+      assert.deepStrictEqual(labelsOf(await provider.getChildren()), ['This Project', 'Global']);
     });
 
-    it('hides sections the user has switched off', async () => {
+    it('lists a note once, not once per section', async () => {
+      await service.createNote({ title: 'Auth flow', scope: 'workspace', content: '# Auth flow\n\n#backend' });
+      service.invalidate();
+
+      const rows: string[] = [];
+      for (const section of await provider.getChildren()) {
+        rows.push(...labelsOf(await provider.getChildren(section)));
+      }
+
+      assert.strictEqual(rows.filter((row) => row === 'Auth flow').length, 1);
+    });
+
+    it('hides Tags when the user has switched the section off', async () => {
       await service.createNote({ title: 'Tagged', scope: 'workspace', content: '# Tagged\n\n#work' });
-      await service.getOrCreateDailyNote('workspace');
       testConfiguration.set('showTags', false);
-      testConfiguration.set('showRecent', false);
       service.invalidate();
 
-      const sectionIds = (await provider.getChildren()).map((item) => item.sectionId);
-      assert.strictEqual(sectionIds.includes('tags'), false);
-      assert.strictEqual(sectionIds.includes('recent'), false);
-    });
-
-    it('shows archived notes in their own section only when enabled', async () => {
-      const note = await service.createNote({ title: 'Stale', scope: 'workspace' });
-      await metadata.toggleArchived(note.id);
-      service.invalidate();
-
-      assert.strictEqual((await provider.getChildren()).some((i) => i.sectionId === 'archive'), false);
-
-      testConfiguration.set('showArchive', true);
-      assert.deepStrictEqual(labelsOf(await section('archive')), ['Stale']);
-    });
-
-    it('keeps archived notes out of the scope sections', async () => {
-      const kept = await service.createNote({ title: 'Kept', scope: 'workspace' });
-      const archived = await service.createNote({ title: 'Archived', scope: 'workspace' });
-      await metadata.toggleArchived(archived.id);
-      service.invalidate();
-
-      assert.deepStrictEqual(labelsOf(await section('workspace')), [kept.title]);
+      assert.deepStrictEqual(labelsOf(await provider.getChildren()), ['This Project', 'Global']);
     });
   });
 
@@ -128,33 +116,11 @@ describe('NotesTreeProvider', () => {
       assert.deepStrictEqual(labelsOf(await provider.getChildren(inner[0])), ['Deep']);
     });
 
-    it('offers a create-a-note affordance when a scope is empty', async () => {
-      const [empty] = await section('workspace');
-      assert.strictEqual(empty.itemType, 'empty');
-      assert.ok(empty.command, 'the empty item should be clickable');
-    });
-  });
-
-  describe('recent notes', () => {
-    it('lists recents newest first and honours the configured limit', async () => {
-      const first = await service.createNote({ title: 'First', scope: 'workspace' });
-      const second = await service.createNote({ title: 'Second', scope: 'workspace' });
-      await metadata.recordRecent(first.id);
-      await metadata.recordRecent(second.id);
-      testConfiguration.set('recentLimit', 1);
+    it('leaves an empty scope silent rather than showing a dead end', async () => {
+      await service.createNote({ title: 'Only here', scope: 'workspace' });
       service.invalidate();
 
-      assert.deepStrictEqual(labelsOf(await section('recent')), ['Second']);
-    });
-
-    it('drops recents whose file no longer exists', async () => {
-      const note = await service.createNote({ title: 'Ghost', scope: 'workspace' });
-      await metadata.recordRecent(note.id);
-      fs.rmSync(note.uri.fsPath);
-      service.invalidate();
-
-      const sectionIds = (await provider.getChildren()).map((item) => item.sectionId);
-      assert.strictEqual(sectionIds.includes('recent'), false);
+      assert.deepStrictEqual(await section('global'), [], 'an empty section should add no rows');
     });
   });
 
@@ -196,10 +162,9 @@ describe('NotesTreeProvider', () => {
 
   it('surfaces a read failure as a tree item instead of throwing', async () => {
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
-    const broken = new NotesTreeProvider(
-      { getAllNotes: () => Promise.reject(new Error('disk on fire')) } as unknown as NoteService,
-      metadata
-    );
+    const broken = new NotesTreeProvider({
+      getAllNotes: () => Promise.reject(new Error('disk on fire')),
+    } as unknown as NoteService);
 
     const children = await broken.getChildren();
     assert.match(String(children[0].label), /disk on fire/);

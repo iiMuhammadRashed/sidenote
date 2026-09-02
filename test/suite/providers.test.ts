@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { Uri, Position, TextDocument, DataTransfer, testConfiguration, testState } from '../mocks/vscode';
 import { MockMemento } from '../mocks/memento';
-import { MetadataService } from '../../src/services/metadata-service';
 import { ProjectRegistry } from '../../src/services/project-registry';
 import { NoteService } from '../../src/services/note-service';
 import { NoteLinkProvider } from '../../src/providers/link-provider';
@@ -32,7 +31,7 @@ describe('Markdown providers', () => {
     testConfiguration.set('vaultPath', vaultDir);
     testState.workspaceFolders = [{ uri: Uri.file(workspaceDir) }];
 
-    service = new NoteService(new MetadataService(new MockMemento(), new MockMemento()), new ProjectRegistry(new MockMemento()));
+    service = new NoteService(new ProjectRegistry(new MockMemento()));
   });
 
   afterEach(() => {

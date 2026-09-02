@@ -8,11 +8,7 @@ export const CONFIG_KEYS = {
   REPO_NOTES_PATH: 'repoNotesPath',
   DEFAULT_SCOPE: 'defaultScope',
   SORT_BY: 'sortBy',
-  SHOW_RECENT: 'showRecent',
-  RECENT_LIMIT: 'recentLimit',
-  SHOW_FAVORITES: 'showFavorites',
   SHOW_TAGS: 'showTags',
-  SHOW_ARCHIVE: 'showArchive',
   SHOW_STATUS_BAR_ITEM: 'showStatusBarItem',
   CONFIRM_DELETE: 'confirmDelete',
   DEFAULT_NOTE_TEMPLATE: 'defaultNoteTemplate',
@@ -39,11 +35,7 @@ export interface ExtensionConfig {
   repoNotesPath: string;
   defaultScope: NoteDefaultScope;
   sortBy: NoteSortOrder;
-  showRecent: boolean;
-  recentLimit: number;
-  showFavorites: boolean;
   showTags: boolean;
-  showArchive: boolean;
   showStatusBarItem: boolean;
   confirmDelete: boolean;
   defaultNoteTemplate: string;
@@ -60,11 +52,7 @@ export function getConfiguration(): ExtensionConfig {
     repoNotesPath: cfg.get<string>(CONFIG_KEYS.REPO_NOTES_PATH, '.notes'),
     defaultScope: cfg.get<NoteDefaultScope>(CONFIG_KEYS.DEFAULT_SCOPE, 'workspace'),
     sortBy: cfg.get<NoteSortOrder>(CONFIG_KEYS.SORT_BY, 'modifiedDesc'),
-    showRecent: cfg.get<boolean>(CONFIG_KEYS.SHOW_RECENT, true),
-    recentLimit: cfg.get<number>(CONFIG_KEYS.RECENT_LIMIT, 7),
-    showFavorites: cfg.get<boolean>(CONFIG_KEYS.SHOW_FAVORITES, true),
     showTags: cfg.get<boolean>(CONFIG_KEYS.SHOW_TAGS, true),
-    showArchive: cfg.get<boolean>(CONFIG_KEYS.SHOW_ARCHIVE, false),
     showStatusBarItem: cfg.get<boolean>(CONFIG_KEYS.SHOW_STATUS_BAR_ITEM, true),
     confirmDelete: cfg.get<boolean>(CONFIG_KEYS.CONFIRM_DELETE, true),
     defaultNoteTemplate: cfg.get<string>(
