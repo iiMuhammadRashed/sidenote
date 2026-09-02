@@ -6,6 +6,7 @@
 
 **Markdown notes that live in your VS Code sidebar.** No account, no sync service, no proprietary format — just plain `.md` files you already own.
 
+[![CI](https://github.com/iiMuhammadRashed/sidenote/actions/workflows/ci.yml/badge.svg)](https://github.com/iiMuhammadRashed/sidenote/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
